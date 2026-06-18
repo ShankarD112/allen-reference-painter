@@ -1,10 +1,8 @@
 """
 Allen Reference Painter - Python/Qt desktop prototype.
 
-This is the first repo version of the app. It keeps the same overall idea as the
-local prototype: BrainGlobe Allen 25um atlas -> trimesh/PyVista meshes -> Qt GUI
-for viewing, painting, importing cell coordinates, and saving atlas-coordinate
-outputs.
+BrainGlobe Allen 25um atlas -> trimesh/PyVista meshes -> Qt GUI for viewing,
+painting, importing cell coordinates, and saving atlas-coordinate outputs.
 """
 
 from __future__ import annotations
@@ -35,11 +33,18 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 PROJECTS_DIR.mkdir(exist_ok=True)
 
 ATLAS_NAME = "allen_mouse_25um"
-STARTER_AREAS = ["ENT", "PAR", "POST", "PRE", "SUB", "ProS", "HATA", "APr", "PERI", "ECT"]
+
+# Start with no loaded anatomical region meshes. The transparent reference brain
+# shell loads first, then users choose specific regions/subregions to add.
+STARTER_AREAS: list[str] = []
+
 DEFAULT_PAINT_COLOR = "#ff3333"
+DEFAULT_MIRROR_COLOR = "#00d7ff"
 DEFAULT_CELL_COLOR = "#00d7ff"
 DEFAULT_REGION_COLOR = "#dddddd"
 
+# Prefer this soft local palette for the regions we commonly use. Other Allen
+# structures fall back to the atlas rgb_triplet, then DEFAULT_REGION_COLOR.
 FALLBACK_REGION_COLORS = {
     "ENT": "#c8c5ff",
     "PAR": "#d4ffff",
@@ -97,6 +102,8 @@ class CellLayer:
     path: str
     dataframe: pd.DataFrame
     xyz: np.ndarray
+    original_xyz: np.ndarray
+    coordinate_mode: str
     color: str = DEFAULT_CELL_COLOR
     actor: object | None = None
 
@@ -105,7 +112,7 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Allen Reference Painter")
-        self.resize(2000, 1100)
+        self.resize(2100, 1150)
 
         self.atlas = BrainGlobeAtlas(ATLAS_NAME)
         self.annotation = np.asarray(self.atlas.annotation)
@@ -118,11 +125,14 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         self.active_area: str | None = None
         self.paint_mode = "paint"
         self.paint_color = DEFAULT_PAINT_COLOR
+        self.mirror_color = DEFAULT_MIRROR_COLOR
         self.cell_layer: CellLayer | None = None
         self.mouse_down = False
         self.last_picked_point: np.ndarray | None = None
         self.last_mirror_point: np.ndarray | None = None
         self.reference_actor = None
+        self.last_pick_actor = None
+        self.last_mirror_actor = None
 
         self.structure_index = self._build_structure_index()
         self.all_region_labels = self._all_region_labels()
@@ -131,26 +141,27 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         self._load_reference_brain_shell()
         for area in STARTER_AREAS:
             self._load_region(area, make_active=False, quiet=True)
-        if self.regions:
-            self.active_area = next(iter(self.regions))
         self._refresh_controls()
         self._setup_picking()
-        self._reset_slices_to_active_region()
+        self._reset_slices_to_center()
         self._update_slice_views()
-        self._update_status("Ready. Load a region/subregion, choose active region, then paint.")
+        self._update_status("Ready. Search/load a region or import cells. No region meshes are preloaded.")
 
-    # ---------- atlas helpers ----------
+    # ---------------------------------------------------------------------
+    # Atlas helpers
+    # ---------------------------------------------------------------------
     def _build_structure_index(self) -> dict[str, dict]:
         out = {}
         for sid, info in self.atlas.structures.items():
             acronym = str(info.get("acronym", "")).strip()
-            if acronym:
-                out[acronym] = {
-                    "id": int(sid),
-                    "name": str(info.get("name", acronym)),
-                    "color": rgb_triplet_to_hex(info.get("rgb_triplet"))
-                    or FALLBACK_REGION_COLORS.get(acronym, DEFAULT_REGION_COLOR),
-                }
+            if not acronym:
+                continue
+            atlas_color = rgb_triplet_to_hex(info.get("rgb_triplet"))
+            out[acronym] = {
+                "id": int(sid),
+                "name": str(info.get("name", acronym)),
+                "color": FALLBACK_REGION_COLORS.get(acronym, atlas_color or DEFAULT_REGION_COLOR),
+            }
         return out
 
     def _all_region_labels(self) -> list[str]:
@@ -182,128 +193,163 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
                 ids.add(int(sid))
         return ids
 
-    # ---------- UI ----------
+    # ---------------------------------------------------------------------
+    # UI
+    # ---------------------------------------------------------------------
     def _build_ui(self) -> None:
         central = QtWidgets.QWidget()
         self.setCentralWidget(central)
-        layout = QtWidgets.QHBoxLayout(central)
+        main_layout = QtWidgets.QHBoxLayout(central)
 
-        side = QtWidgets.QWidget()
-        side.setFixedWidth(430)
-        side_layout = QtWidgets.QVBoxLayout(side)
+        # Left panel: region loading/table only, so it is no longer crowded by
+        # paint/brush options.
+        left = QtWidgets.QWidget()
+        left.setFixedWidth(470)
+        left_layout = QtWidgets.QVBoxLayout(left)
+
         title = QtWidgets.QLabel("Allen Reference Painter")
         title.setStyleSheet("font-size: 18px; font-weight: bold;")
-        side_layout.addWidget(title)
+        left_layout.addWidget(title)
 
-        self.reference_checkbox = QtWidgets.QCheckBox("Show transparent reference brain shell")
-        self.reference_checkbox.setChecked(True)
-        self.reference_checkbox.stateChanged.connect(lambda _: self._refresh_scene())
-        side_layout.addWidget(self.reference_checkbox)
-
-        side_layout.addWidget(QtWidgets.QLabel("Reference brain opacity"))
-        self.brain_opacity_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        self.brain_opacity_slider.setMinimum(0)
-        self.brain_opacity_slider.setMaximum(100)
-        self.brain_opacity_slider.setValue(10)
-        self.brain_opacity_slider.valueChanged.connect(lambda _: self._refresh_scene())
-        side_layout.addWidget(self.brain_opacity_slider)
-
-        side_layout.addWidget(QtWidgets.QLabel("Search/load Allen region or subregion"))
+        left_layout.addWidget(QtWidgets.QLabel("Search/load Allen region or subregion"))
         self.region_search = QtWidgets.QLineEdit()
         self.region_search.setPlaceholderText("Search acronym/name, e.g. ENT, SUB, CA1")
         self.region_search.textChanged.connect(self._filter_region_picker)
-        side_layout.addWidget(self.region_search)
+        left_layout.addWidget(self.region_search)
+
         self.region_picker = QtWidgets.QComboBox()
-        side_layout.addWidget(self.region_picker)
+        left_layout.addWidget(self.region_picker)
+
+        load_row = QtWidgets.QHBoxLayout()
         self.load_region_button = QtWidgets.QPushButton("Load selected region")
         self.load_region_button.clicked.connect(self._load_selected_region)
-        side_layout.addWidget(self.load_region_button)
+        load_row.addWidget(self.load_region_button)
+        self.remove_region_button = QtWidgets.QPushButton("Remove active")
+        self.remove_region_button.clicked.connect(self._remove_active_region)
+        load_row.addWidget(self.remove_region_button)
+        left_layout.addLayout(load_row)
 
-        side_layout.addWidget(QtWidgets.QLabel("Active region to paint"))
-        self.active_combo = QtWidgets.QComboBox()
-        self.active_combo.currentTextChanged.connect(self._set_active_area)
-        side_layout.addWidget(self.active_combo)
-
-        self.mode_button = QtWidgets.QPushButton("Mode: paint")
-        self.mode_button.clicked.connect(self._toggle_mode)
-        side_layout.addWidget(self.mode_button)
-
-        self.continuous_checkbox = QtWidgets.QCheckBox("Continuous paint while dragging")
-        self.continuous_checkbox.setChecked(True)
-        side_layout.addWidget(self.continuous_checkbox)
-
-        self.symmetry_checkbox = QtWidgets.QCheckBox("Symmetric mirror painting across midline")
-        self.symmetry_checkbox.setChecked(False)
-        side_layout.addWidget(self.symmetry_checkbox)
-
-        self.sync_slice_checkbox = QtWidgets.QCheckBox("3D click updates slice positions")
-        self.sync_slice_checkbox.setChecked(True)
-        side_layout.addWidget(self.sync_slice_checkbox)
-
-        self.paint_color_button = QtWidgets.QPushButton(self.paint_color)
-        self.paint_color_button.setStyleSheet(f"background-color: {self.paint_color}; color: black;")
-        self.paint_color_button.clicked.connect(self._choose_paint_color)
-        side_layout.addWidget(QtWidgets.QLabel("Paint color"))
-        side_layout.addWidget(self.paint_color_button)
-
-        side_layout.addWidget(QtWidgets.QLabel("Brush radius, um"))
-        self.brush_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        self.brush_slider.setMinimum(25)
-        self.brush_slider.setMaximum(800)
-        self.brush_slider.setValue(150)
-        side_layout.addWidget(self.brush_slider)
-
-        self.active_opacity_slider = self._add_slider(side_layout, "Active mesh opacity", 5, 100, 60)
-        self.reference_opacity_slider = self._add_slider(side_layout, "Other loaded mesh opacity", 0, 100, 30)
-        self.paint_opacity_slider = self._add_slider(side_layout, "Paint overlay opacity", 10, 100, 90)
-        self.slice_thickness_slider = self._add_slider(side_layout, "2D overlay thickness, um", 25, 500, 100)
-        self.slice_thickness_slider.valueChanged.connect(lambda _: self._update_slice_views())
-
-        self.show_painted_2d_checkbox = QtWidgets.QCheckBox("Show painted ROI on slices")
-        self.show_painted_2d_checkbox.setChecked(True)
-        self.show_painted_2d_checkbox.stateChanged.connect(lambda _: self._update_slice_views())
-        side_layout.addWidget(self.show_painted_2d_checkbox)
-
-        self.show_cells_2d_checkbox = QtWidgets.QCheckBox("Show imported cells on slices")
-        self.show_cells_2d_checkbox.setChecked(True)
-        self.show_cells_2d_checkbox.stateChanged.connect(lambda _: self._update_slice_views())
-        side_layout.addWidget(self.show_cells_2d_checkbox)
-
-        self.load_cells_button = QtWidgets.QPushButton("Load cells CSV/TSV/XLSX")
-        self.load_cells_button.clicked.connect(self._load_cells_dialog)
-        side_layout.addWidget(self.load_cells_button)
-
-        self.clear_cells_button = QtWidgets.QPushButton("Clear cells")
-        self.clear_cells_button.clicked.connect(self._clear_cells)
-        side_layout.addWidget(self.clear_cells_button)
-
+        left_layout.addWidget(QtWidgets.QLabel("Loaded region meshes"))
         self.region_table = QtWidgets.QTableWidget()
         self.region_table.setColumnCount(4)
         self.region_table.setHorizontalHeaderLabels(["Show", "Area", "Name", "Color"])
         self.region_table.verticalHeader().setVisible(False)
-        side_layout.addWidget(self.region_table, stretch=1)
+        self.region_table.setAlternatingRowColors(True)
+        self.region_table.setColumnWidth(0, 48)
+        self.region_table.setColumnWidth(1, 72)
+        self.region_table.setColumnWidth(2, 220)
+        self.region_table.setColumnWidth(3, 92)
+        self.region_table.horizontalHeader().setStretchLastSection(True)
+        self.region_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.region_table.cellClicked.connect(self._region_table_clicked)
+        left_layout.addWidget(self.region_table, stretch=1)
 
-        button_grid = QtWidgets.QGridLayout()
+        # Center panel: top tool strips + 3D viewer.
+        center = QtWidgets.QWidget()
+        center_layout = QtWidgets.QVBoxLayout(center)
+        center_layout.setContentsMargins(0, 0, 0, 0)
+
+        top_tools = QtWidgets.QWidget()
+        top_layout = QtWidgets.QVBoxLayout(top_tools)
+        top_layout.setContentsMargins(4, 4, 4, 4)
+
+        row1 = QtWidgets.QHBoxLayout()
+        self.active_combo = QtWidgets.QComboBox()
+        self.active_combo.currentTextChanged.connect(self._set_active_area)
+        row1.addWidget(QtWidgets.QLabel("Active region:"))
+        row1.addWidget(self.active_combo, stretch=2)
+
+        self.mode_button = QtWidgets.QPushButton("Mode: paint")
+        self.mode_button.clicked.connect(self._toggle_mode)
+        row1.addWidget(self.mode_button)
+
+        self.paint_color_button = QtWidgets.QPushButton(self.paint_color)
+        self.paint_color_button.setStyleSheet(f"background-color: {self.paint_color}; color: black;")
+        self.paint_color_button.clicked.connect(self._choose_paint_color)
+        row1.addWidget(QtWidgets.QLabel("Paint color:"))
+        row1.addWidget(self.paint_color_button)
+
+        self.mirror_color_button = QtWidgets.QPushButton(self.mirror_color)
+        self.mirror_color_button.setStyleSheet(f"background-color: {self.mirror_color}; color: black;")
+        self.mirror_color_button.clicked.connect(self._choose_mirror_color)
+        row1.addWidget(QtWidgets.QLabel("Mirror marker:"))
+        row1.addWidget(self.mirror_color_button)
+        top_layout.addLayout(row1)
+
+        row2 = QtWidgets.QHBoxLayout()
+        self.continuous_checkbox = QtWidgets.QCheckBox("Continuous paint while dragging")
+        self.continuous_checkbox.setChecked(False)
+        row2.addWidget(self.continuous_checkbox)
+
+        self.symmetry_checkbox = QtWidgets.QCheckBox("Symmetric mirror painting")
+        self.symmetry_checkbox.setChecked(False)
+        row2.addWidget(self.symmetry_checkbox)
+
+        self.sync_slice_checkbox = QtWidgets.QCheckBox("3D click updates slices")
+        self.sync_slice_checkbox.setChecked(True)
+        row2.addWidget(self.sync_slice_checkbox)
+
+        self.reference_checkbox = QtWidgets.QCheckBox("Reference brain")
+        self.reference_checkbox.setChecked(True)
+        self.reference_checkbox.stateChanged.connect(lambda _: self._refresh_scene())
+        row2.addWidget(self.reference_checkbox)
+
+        self.show_painted_2d_checkbox = QtWidgets.QCheckBox("ROI on slices")
+        self.show_painted_2d_checkbox.setChecked(True)
+        self.show_painted_2d_checkbox.stateChanged.connect(lambda _: self._update_slice_views())
+        row2.addWidget(self.show_painted_2d_checkbox)
+
+        self.show_cells_2d_checkbox = QtWidgets.QCheckBox("Cells on slices")
+        self.show_cells_2d_checkbox.setChecked(True)
+        self.show_cells_2d_checkbox.stateChanged.connect(lambda _: self._update_slice_views())
+        row2.addWidget(self.show_cells_2d_checkbox)
+        row2.addStretch(1)
+        top_layout.addLayout(row2)
+
+        row3 = QtWidgets.QHBoxLayout()
+        self.brush_slider = self._compact_slider(row3, "Brush um", 25, 800, 150, self._refresh_scene)
+        self.active_opacity_slider = self._compact_slider(row3, "Active opacity", 5, 100, 60, self._refresh_scene)
+        self.reference_opacity_slider = self._compact_slider(row3, "Other opacity", 0, 100, 30, self._refresh_scene)
+        self.paint_opacity_slider = self._compact_slider(row3, "Paint opacity", 10, 100, 90, self._refresh_scene)
+        self.brain_opacity_slider = self._compact_slider(row3, "Brain opacity", 0, 100, 8, self._refresh_scene)
+        self.slice_thickness_slider = self._compact_slider(row3, "Slice thick um", 25, 1000, 250, self._update_slice_views)
+        self.cell_size_slider = self._compact_slider(row3, "Cell size", 4, 40, 18, self._refresh_cell_actor)
+        top_layout.addLayout(row3)
+
+        row4 = QtWidgets.QHBoxLayout()
+        self.load_cells_button = QtWidgets.QPushButton("Load cells CSV/TSV/XLSX")
+        self.load_cells_button.clicked.connect(self._load_cells_dialog)
+        row4.addWidget(self.load_cells_button)
+        self.clear_cells_button = QtWidgets.QPushButton("Clear cells")
+        self.clear_cells_button.clicked.connect(self._clear_cells)
+        row4.addWidget(self.clear_cells_button)
         self.clear_button = QtWidgets.QPushButton("Clear active paint")
         self.clear_button.clicked.connect(self._clear_active_paint)
-        button_grid.addWidget(self.clear_button, 0, 0)
+        row4.addWidget(self.clear_button)
         self.save_roi_button = QtWidgets.QPushButton("Save active ROI")
         self.save_roi_button.clicked.connect(self._save_active_roi)
-        button_grid.addWidget(self.save_roi_button, 0, 1)
+        row4.addWidget(self.save_roi_button)
         self.save_scene_button = QtWidgets.QPushButton("Save scene/meshes")
         self.save_scene_button.clicked.connect(self._save_scene_outputs)
-        button_grid.addWidget(self.save_scene_button, 1, 0)
+        row4.addWidget(self.save_scene_button)
         self.screenshot_button = QtWidgets.QPushButton("Screenshot")
         self.screenshot_button.clicked.connect(self._save_screenshot)
-        button_grid.addWidget(self.screenshot_button, 1, 1)
-        side_layout.addLayout(button_grid)
+        row4.addWidget(self.screenshot_button)
+        row4.addStretch(1)
+        top_layout.addLayout(row4)
 
+        center_layout.addWidget(top_tools)
         self.plotter = QtInteractor(central)
+        center_layout.addWidget(self.plotter.interactor, stretch=1)
 
+        # Right panel: 2D slice views.
         right = QtWidgets.QWidget()
         right.setFixedWidth(570)
         right_layout = QtWidgets.QVBoxLayout(right)
-        right_layout.addWidget(QtWidgets.QLabel("Allen-style 2D slice viewer"))
+        right_title = QtWidgets.QLabel("Allen-style 2D slice viewer")
+        right_title.setStyleSheet("font-size: 15px; font-weight: bold;")
+        right_layout.addWidget(right_title)
+
         self.coronal_label = QtWidgets.QLabel("Coronal")
         right_layout.addWidget(self.coronal_label)
         self.coronal_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
@@ -314,6 +360,7 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         self.coronal_fig = Figure(figsize=(5.3, 4.2), dpi=100)
         self.coronal_canvas = FigureCanvas(self.coronal_fig)
         right_layout.addWidget(self.coronal_canvas, stretch=1)
+
         self.sagittal_label = QtWidgets.QLabel("Sagittal")
         right_layout.addWidget(self.sagittal_label)
         self.sagittal_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
@@ -325,30 +372,47 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         self.sagittal_canvas = FigureCanvas(self.sagittal_fig)
         right_layout.addWidget(self.sagittal_canvas, stretch=1)
 
-        layout.addWidget(side)
-        layout.addWidget(self.plotter.interactor, stretch=1)
-        layout.addWidget(right)
+        main_layout.addWidget(left)
+        main_layout.addWidget(center, stretch=1)
+        main_layout.addWidget(right)
         self.status = self.statusBar()
 
-    def _add_slider(self, layout, label, min_value, max_value, value):
-        layout.addWidget(QtWidgets.QLabel(label))
+    def _compact_slider(self, layout, label, min_value, max_value, value, callback):
+        box = QtWidgets.QWidget()
+        box.setFixedWidth(145)
+        vbox = QtWidgets.QVBoxLayout(box)
+        vbox.setContentsMargins(2, 0, 2, 0)
+        text = QtWidgets.QLabel(f"{label}: {value}")
         slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         slider.setMinimum(min_value)
         slider.setMaximum(max_value)
         slider.setValue(value)
-        slider.valueChanged.connect(lambda _: self._refresh_scene())
-        layout.addWidget(slider)
+
+        def on_change(v):
+            text.setText(f"{label}: {v}")
+            callback()
+
+        slider.valueChanged.connect(on_change)
+        vbox.addWidget(text)
+        vbox.addWidget(slider)
+        layout.addWidget(box)
         return slider
 
-    # ---------- loading/rendering ----------
+    # ---------------------------------------------------------------------
+    # Loading/rendering
+    # ---------------------------------------------------------------------
     def _load_reference_brain_shell(self) -> None:
         self.plotter.clear()
         for acronym in ["root", "grey", "CH", "CTX", "HPF"]:
             try:
                 mesh = trimesh.load(self.atlas.meshfile_from_structure(acronym), force="mesh")
                 self.reference_actor = self.plotter.add_mesh(
-                    pv.wrap(mesh), color="#d8d8d8", opacity=self.brain_opacity_slider.value() / 100,
-                    show_edges=False, pickable=False, name="reference_brain"
+                    pv.wrap(mesh),
+                    color="#d8d8d8",
+                    opacity=self.brain_opacity_slider.value() / 100,
+                    show_edges=False,
+                    pickable=False,
+                    name="reference_brain",
                 )
                 break
             except Exception:
@@ -376,11 +440,17 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
                 face_centroids=tri_mesh.triangles_center,
                 color=self._structure_color(acronym),
             )
-            region.actor = self.plotter.add_mesh(
-                region.pyvista_mesh, color=region.color, opacity=self._mesh_opacity(acronym),
-                show_edges=True, edge_color="gray", line_width=0.2, pickable=True, name=acronym
-            )
             self.regions[acronym] = region
+            region.actor = self.plotter.add_mesh(
+                region.pyvista_mesh,
+                color=region.color,
+                opacity=self._mesh_opacity(acronym),
+                show_edges=True,
+                edge_color="gray",
+                line_width=0.2,
+                pickable=True,
+                name=acronym,
+            )
             if make_active:
                 self.active_area = acronym
             if not quiet:
@@ -409,6 +479,21 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         if self._load_region(acronym, make_active=True):
             self._refresh_controls()
             self._refresh_scene()
+            self.plotter.reset_camera()
+
+    def _remove_active_region(self) -> None:
+        if not self.active_area or self.active_area not in self.regions:
+            return
+        acronym = self.active_area
+        region = self.regions.pop(acronym)
+        if region.actor is not None:
+            self.plotter.remove_actor(region.actor)
+        if region.painted_actor is not None:
+            self.plotter.remove_actor(region.painted_actor)
+        self.active_area = next(iter(self.regions), None)
+        self._refresh_controls()
+        self._refresh_scene()
+        self._update_status(f"Removed {acronym}")
 
     def _refresh_controls(self) -> None:
         self._filter_region_picker(self.region_search.text())
@@ -433,6 +518,14 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
             color_button.setStyleSheet(f"background-color: {region.color};")
             color_button.clicked.connect(lambda _, a=acronym, b=color_button: self._choose_region_color(a, b))
             self.region_table.setCellWidget(row, 3, color_button)
+        self.region_table.resizeRowsToContents()
+
+    def _region_table_clicked(self, row: int, _col: int) -> None:
+        item = self.region_table.item(row, 1)
+        if item is not None and item.text() in self.regions:
+            self.active_area = item.text()
+            self.active_combo.setCurrentText(self.active_area)
+            self._refresh_scene()
 
     def _mesh_opacity(self, acronym: str) -> float:
         if acronym == self.active_area:
@@ -452,26 +545,23 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
                 region.painted_actor.SetVisibility(region.visible)
                 region.painted_actor.GetProperty().SetColor(*hex_to_rgb01(self.paint_color))
                 region.painted_actor.GetProperty().SetOpacity(self.paint_opacity_slider.value() / 100)
-        if self.cell_layer and self.cell_layer.actor:
-            self.cell_layer.actor.GetProperty().SetColor(*hex_to_rgb01(self.cell_layer.color))
+        self._refresh_cell_actor(update_existing_only=True)
+        self._update_pick_markers()
         self.plotter.render()
         self._update_slice_views()
 
-    # ---------- slices ----------
+    # ---------------------------------------------------------------------
+    # Slices
+    # ---------------------------------------------------------------------
     def _um_to_index(self, value_um: float, axis: int) -> int:
         return int(np.clip(round(value_um / self.resolution_um[axis]), 0, self.shape[axis] - 1))
 
     def _index_to_um(self, index: int, axis: int) -> float:
         return float(index * self.resolution_um[axis])
 
-    def _reset_slices_to_active_region(self) -> None:
-        if self.active_area and self.active_area in self.regions:
-            center = self.regions[self.active_area].face_centroids.mean(axis=0)
-            self.coronal_slider.setValue(self._um_to_index(center[0], 0))
-            self.sagittal_slider.setValue(self._um_to_index(center[2], 2))
-        else:
-            self.coronal_slider.setValue(self.shape[0] // 2)
-            self.sagittal_slider.setValue(self.shape[2] // 2)
+    def _reset_slices_to_center(self) -> None:
+        self.coronal_slider.setValue(self.shape[0] // 2)
+        self.sagittal_slider.setValue(self.shape[2] // 2)
 
     def _annotation_rgb(self, annotation_slice: np.ndarray) -> np.ndarray:
         rgb = np.full((*annotation_slice.shape, 3), 245, dtype=np.uint8)
@@ -526,23 +616,35 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
                 if plane == "coronal":
                     pts = pts[np.abs(pts[:, 0] - plane_um) <= half_thick]
                     if pts.size:
-                        ax.scatter(pts[:, 2], pts[:, 1], s=8, c=self.paint_color, edgecolors="none")
+                        ax.scatter(pts[:, 2], pts[:, 1], s=9, c=self.paint_color, edgecolors="none")
                 else:
                     pts = pts[np.abs(pts[:, 2] - plane_um) <= half_thick]
                     if pts.size:
-                        ax.scatter(pts[:, 0], pts[:, 1], s=8, c=self.paint_color, edgecolors="none")
+                        ax.scatter(pts[:, 0], pts[:, 1], s=9, c=self.paint_color, edgecolors="none")
         if self.show_cells_2d_checkbox.isChecked() and self.cell_layer is not None:
             pts = self.cell_layer.xyz
             if plane == "coronal":
                 near = pts[np.abs(pts[:, 0] - plane_um) <= half_thick]
                 if near.size:
-                    ax.scatter(near[:, 2], near[:, 1], s=18, c=self.cell_layer.color, edgecolors="black", linewidths=0.2)
+                    ax.scatter(near[:, 2], near[:, 1], s=28, c=self.cell_layer.color, edgecolors="black", linewidths=0.35)
             else:
                 near = pts[np.abs(pts[:, 2] - plane_um) <= half_thick]
                 if near.size:
-                    ax.scatter(near[:, 0], near[:, 1], s=18, c=self.cell_layer.color, edgecolors="black", linewidths=0.2)
+                    ax.scatter(near[:, 0], near[:, 1], s=28, c=self.cell_layer.color, edgecolors="black", linewidths=0.35)
+        if self.last_picked_point is not None:
+            if plane == "coronal":
+                ax.scatter([self.last_picked_point[2]], [self.last_picked_point[1]], s=65, c="#ffd400", edgecolors="black")
+            else:
+                ax.scatter([self.last_picked_point[0]], [self.last_picked_point[1]], s=65, c="#ffd400", edgecolors="black")
+        if self.symmetry_checkbox.isChecked() and self.last_mirror_point is not None:
+            if plane == "coronal":
+                ax.scatter([self.last_mirror_point[2]], [self.last_mirror_point[1]], s=65, c=self.mirror_color, edgecolors="black")
+            else:
+                ax.scatter([self.last_mirror_point[0]], [self.last_mirror_point[1]], s=65, c=self.mirror_color, edgecolors="black")
 
-    # ---------- painting ----------
+    # ---------------------------------------------------------------------
+    # Painting
+    # ---------------------------------------------------------------------
     def _setup_picking(self) -> None:
         self.cell_picker = vtk.vtkCellPicker()
         self.cell_picker.SetTolerance(0.0008)
@@ -571,28 +673,38 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
             return
         point = np.asarray(self.cell_picker.GetPickPosition(), dtype=float)
         self.last_picked_point = point
-        if self.sync_slice_checkbox.isChecked():
-            self.coronal_slider.setValue(self._um_to_index(point[0], 0))
-            self.sagittal_slider.setValue(self._um_to_index(point[2], 2))
-        self._paint_near_point(point)
+        points = [point]
         if self.symmetry_checkbox.isChecked():
             mirror = point.copy()
             mirror[2] = (2 * self.midline_z_um) - mirror[2]
             self.last_mirror_point = mirror
-            self._paint_near_point(mirror)
+            points.append(mirror)
+        else:
+            self.last_mirror_point = None
+        if self.sync_slice_checkbox.isChecked():
+            self.coronal_slider.setValue(self._um_to_index(point[0], 0))
+            self.sagittal_slider.setValue(self._um_to_index(point[2], 2))
+        self._paint_at_points(points)
 
-    def _paint_near_point(self, point: np.ndarray) -> None:
-        region = self.regions[self.active_area]
+    def _face_ids_near_point(self, region: RegionMesh, point: np.ndarray) -> Set[int]:
         distances = np.linalg.norm(region.face_centroids - point[None, :], axis=1)
         face_ids = set(int(x) for x in np.where(distances <= self.brush_slider.value())[0])
         if not face_ids:
             face_ids = {int(np.argmin(distances))}
+        return face_ids
+
+    def _paint_at_points(self, points: list[np.ndarray]) -> None:
+        region = self.regions[self.active_area]
+        face_ids: Set[int] = set()
+        for point in points:
+            face_ids.update(self._face_ids_near_point(region, point))
         if self.paint_mode == "paint":
             region.painted_faces.update(face_ids)
         else:
             region.painted_faces.difference_update(face_ids)
         self._update_painted_overlay(region)
-        self._update_status(f"{self.paint_mode} {region.acronym}: {len(region.painted_faces)} painted faces")
+        mirror_note = " + mirror" if len(points) > 1 else ""
+        self._update_status(f"{self.paint_mode}{mirror_note} {region.acronym}: {len(region.painted_faces)} painted faces")
         self._refresh_scene()
 
     def _selected_faces_mesh(self, region: RegionMesh) -> trimesh.Trimesh | None:
@@ -608,33 +720,92 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         selected = self._selected_faces_mesh(region)
         if selected is not None:
             region.painted_actor = self.plotter.add_mesh(
-                pv.wrap(selected), color=self.paint_color, opacity=self.paint_opacity_slider.value() / 100,
-                show_edges=False, pickable=False, name=f"painted_{region.acronym}"
+                pv.wrap(selected),
+                color=self.paint_color,
+                opacity=self.paint_opacity_slider.value() / 100,
+                show_edges=False,
+                pickable=False,
+                name=f"painted_{region.acronym}",
             )
 
-    # ---------- cells ----------
+    def _update_pick_markers(self) -> None:
+        for actor_name in ["last_pick", "last_mirror"]:
+            try:
+                self.plotter.remove_actor(actor_name)
+            except Exception:
+                pass
+        if self.last_picked_point is not None:
+            sphere = pv.Sphere(radius=90, center=self.last_picked_point)
+            self.plotter.add_mesh(sphere, color="#ffd400", pickable=False, name="last_pick")
+        if self.symmetry_checkbox.isChecked() and self.last_mirror_point is not None:
+            sphere = pv.Sphere(radius=90, center=self.last_mirror_point)
+            self.plotter.add_mesh(sphere, color=self.mirror_color, pickable=False, name="last_mirror")
+
+    # ---------------------------------------------------------------------
+    # Cells
+    # ---------------------------------------------------------------------
     def _load_cells_dialog(self) -> None:
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "Load cell coordinates", str(PROJECT_DIR),
-            "Table files (*.csv *.tsv *.txt *.xlsx *.xls);;All files (*)"
+            self,
+            "Load cell coordinates",
+            str(PROJECT_DIR),
+            "Table files (*.csv *.tsv *.txt *.xlsx *.xls);;All files (*)",
         )
         if not path:
             return
         try:
             df = self._read_table(Path(path))
             x_col, y_col, z_col = self._find_xyz_columns(df)
-            xyz = df[[x_col, y_col, z_col]].astype(float).to_numpy()
-            xyz = xyz[np.all(np.isfinite(xyz), axis=1)]
-            self.cell_layer = CellLayer(path=path, dataframe=df, xyz=xyz)
-            pdata = pv.PolyData(xyz)
-            self.cell_layer.actor = self.plotter.add_mesh(
-                pdata, color=self.cell_layer.color, point_size=8, render_points_as_spheres=True,
-                pickable=False, name="cell_coordinates"
-            )
-            self._update_status(f"Loaded {xyz.shape[0]} cells from {Path(path).name}")
+            original_xyz = df[[x_col, y_col, z_col]].astype(float).to_numpy()
+            original_xyz = original_xyz[np.all(np.isfinite(original_xyz), axis=1)]
+            xyz, mode = self._normalize_cell_coordinates(original_xyz)
+            self.cell_layer = CellLayer(path=path, dataframe=df, xyz=xyz, original_xyz=original_xyz, coordinate_mode=mode)
+            self._refresh_cell_actor(update_existing_only=False)
+            center = xyz.mean(axis=0)
+            self.coronal_slider.setValue(self._um_to_index(center[0], 0))
+            self.sagittal_slider.setValue(self._um_to_index(center[2], 2))
+            self.plotter.reset_camera()
+            self._update_status(f"Loaded {xyz.shape[0]} cells from {Path(path).name} ({mode})")
             self._refresh_scene()
         except Exception as exc:
             self._update_status(f"Could not load cells: {exc}")
+
+    def _refresh_cell_actor(self, update_existing_only: bool = False) -> None:
+        if self.cell_layer is None:
+            return
+        if self.cell_layer.actor is not None:
+            self.plotter.remove_actor(self.cell_layer.actor)
+            self.cell_layer.actor = None
+        elif update_existing_only:
+            return
+        pdata = pv.PolyData(self.cell_layer.xyz)
+        self.cell_layer.actor = self.plotter.add_mesh(
+            pdata,
+            color=self.cell_layer.color,
+            point_size=self.cell_size_slider.value(),
+            render_points_as_spheres=True,
+            pickable=False,
+            name="cell_coordinates",
+        )
+
+    def _normalize_cell_coordinates(self, xyz: np.ndarray) -> tuple[np.ndarray, str]:
+        if xyz.size == 0:
+            return xyz, "empty"
+        max_vals = np.nanmax(xyz, axis=0)
+        shape_arr = np.array(self.shape, dtype=float)
+        size_arr = np.array(self.size_um, dtype=float)
+
+        # If the coordinates look like voxel indices rather than microns, convert
+        # them to Allen atlas microns. This catches common Excel exports where
+        # x/y/z are annotation indices.
+        if np.all(max_vals <= shape_arr + 5):
+            return xyz * np.array(self.resolution_um)[None, :], "voxel indices converted to microns"
+
+        # Otherwise assume atlas-space microns. Warn in the status if the points
+        # are far outside the current atlas bounds, but still show them.
+        if np.any(max_vals > size_arr * 1.25):
+            return xyz, "microns, some coordinates outside atlas bounds"
+        return xyz, "microns"
 
     def _read_table(self, path: Path) -> pd.DataFrame:
         if path.suffix.lower() in {".xlsx", ".xls"}:
@@ -648,9 +819,9 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
     def _find_xyz_columns(self, df: pd.DataFrame):
         lower = {str(c).strip().lower(): c for c in df.columns}
         aliases = {
-            "x": ["x", "x_um", "atlas_x", "ap"],
-            "y": ["y", "y_um", "atlas_y", "dv"],
-            "z": ["z", "z_um", "atlas_z", "ml"],
+            "x": ["x", "x_um", "atlas_x", "ap", "ap_um"],
+            "y": ["y", "y_um", "atlas_y", "dv", "dv_um"],
+            "z": ["z", "z_um", "atlas_z", "ml", "ml_um"],
         }
         found = []
         for axis in ["x", "y", "z"]:
@@ -660,7 +831,9 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
             found.append(col)
         return found
 
-    # ---------- buttons / saving ----------
+    # ---------------------------------------------------------------------
+    # Buttons / saving
+    # ---------------------------------------------------------------------
     def _set_active_area(self, acronym: str) -> None:
         if acronym in self.regions:
             self.active_area = acronym
@@ -688,6 +861,14 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
                 self._update_painted_overlay(region)
             self._refresh_scene()
 
+    def _choose_mirror_color(self) -> None:
+        color = QtWidgets.QColorDialog.getColor(QColor(self.mirror_color), self, "Choose mirror marker color")
+        if color.isValid():
+            self.mirror_color = color.name()
+            self.mirror_color_button.setText(self.mirror_color)
+            self.mirror_color_button.setStyleSheet(f"background-color: {self.mirror_color}; color: black;")
+            self._refresh_scene()
+
     def _toggle_mode(self) -> None:
         self.paint_mode = "erase" if self.paint_mode == "paint" else "paint"
         self.mode_button.setText(f"Mode: {self.paint_mode}")
@@ -707,6 +888,7 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
 
     def _save_active_roi(self) -> None:
         if not self.active_area:
+            self._update_status("No active region loaded.")
             return
         region = self.regions[self.active_area]
         if not region.painted_faces:
@@ -729,6 +911,7 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
             "atlas_resolution_um": self.resolution_um,
             "atlas_shape": self.shape,
             "paint_color": self.paint_color,
+            "mirror_color": self.mirror_color,
             "region_color": region.color,
             "ply_file": str(ply_path),
             "face_ids_file": str(csv_path),
@@ -772,8 +955,13 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
             manifest["regions"].append(item)
         if self.cell_layer is not None:
             cells_path = scene_dir / "imported_cells_atlas_coordinates.csv"
-            pd.DataFrame(self.cell_layer.xyz, columns=["x", "y", "z"]).to_csv(cells_path, index=False)
+            out = self.cell_layer.dataframe.copy()
+            out["app_x_um"] = self.cell_layer.xyz[:, 0]
+            out["app_y_um"] = self.cell_layer.xyz[:, 1]
+            out["app_z_um"] = self.cell_layer.xyz[:, 2]
+            out.to_csv(cells_path, index=False)
             manifest["cells_file"] = str(cells_path)
+            manifest["cell_coordinate_mode"] = self.cell_layer.coordinate_mode
         with open(scene_dir / "scene_manifest.json", "w") as f:
             json.dump(manifest, f, indent=2)
         self._update_status(f"Saved scene outputs: {scene_dir}")
