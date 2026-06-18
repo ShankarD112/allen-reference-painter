@@ -37,15 +37,109 @@ QScrollBar::handle:hover { background: #ff9f1c; }
 """
 
 
+class CellTableDialog(QtWidgets.QDialog):
+    """Table popup for selecting which imported cells are visible."""
+
+    def __init__(self, dataframe: pd.DataFrame, selection_mask: np.ndarray, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Imported Cell Table")
+        self.resize(1150, 650)
+        self.dataframe = dataframe.reset_index(drop=True)
+        self.selection_mask = selection_mask.astype(bool).copy()
+        layout = QtWidgets.QVBoxLayout(self)
+
+        controls = QtWidgets.QHBoxLayout()
+        self.search = QtWidgets.QLineEdit()
+        self.search.setPlaceholderText("Filter visible rows by text, e.g. Aug012024IR3a")
+        self.search.textChanged.connect(self._populate)
+        controls.addWidget(self.search, stretch=1)
+        select_all = QtWidgets.QPushButton("Select all")
+        select_all.clicked.connect(lambda: self._set_all(True))
+        controls.addWidget(select_all)
+        deselect_all = QtWidgets.QPushButton("Deselect all")
+        deselect_all.clicked.connect(lambda: self._set_all(False))
+        controls.addWidget(deselect_all)
+        layout.addLayout(controls)
+
+        self.table = QtWidgets.QTableWidget()
+        self.table.setAlternatingRowColors(True)
+        self.table.setSortingEnabled(False)
+        layout.addWidget(self.table, stretch=1)
+
+        bottom = QtWidgets.QHBoxLayout()
+        self.count_label = QtWidgets.QLabel("")
+        bottom.addWidget(self.count_label)
+        bottom.addStretch(1)
+        apply_button = QtWidgets.QPushButton("Apply selection")
+        apply_button.clicked.connect(self.accept)
+        bottom.addWidget(apply_button)
+        cancel_button = QtWidgets.QPushButton("Cancel")
+        cancel_button.clicked.connect(self.reject)
+        bottom.addWidget(cancel_button)
+        layout.addLayout(bottom)
+        self._populate()
+
+    def _matching_indices(self) -> list[int]:
+        query = self.search.text().strip().lower()
+        if not query:
+            return list(range(len(self.dataframe)))
+        text = self.dataframe.astype(str).agg(" ".join, axis=1).str.lower()
+        return list(np.where(text.str.contains(query, regex=False).to_numpy())[0])
+
+    def _populate(self) -> None:
+        idxs = self._matching_indices()
+        cols = list(self.dataframe.columns)
+        self.table.blockSignals(True)
+        self.table.clear()
+        self.table.setRowCount(len(idxs))
+        self.table.setColumnCount(len(cols) + 2)
+        self.table.setHorizontalHeaderLabels(["Show", "#"] + [str(c) for c in cols])
+        for r, idx in enumerate(idxs):
+            show_item = QtWidgets.QTableWidgetItem()
+            show_item.setFlags(QtCore.Qt.ItemIsUserCheckable | QtCore.Qt.ItemIsEnabled)
+            show_item.setCheckState(QtCore.Qt.Checked if self.selection_mask[idx] else QtCore.Qt.Unchecked)
+            show_item.setData(QtCore.Qt.UserRole, int(idx))
+            self.table.setItem(r, 0, show_item)
+            idx_item = QtWidgets.QTableWidgetItem(str(idx + 1))
+            idx_item.setData(QtCore.Qt.UserRole, int(idx))
+            self.table.setItem(r, 1, idx_item)
+            for c, col in enumerate(cols, start=2):
+                value = self.dataframe.iloc[idx][col]
+                self.table.setItem(r, c, QtWidgets.QTableWidgetItem(str(value)))
+        self.table.itemChanged.connect(self._item_changed)
+        self.table.blockSignals(False)
+        self.table.resizeColumnsToContents()
+        self._update_count_label()
+
+    def _item_changed(self, item: QtWidgets.QTableWidgetItem) -> None:
+        if item.column() != 0:
+            return
+        idx = item.data(QtCore.Qt.UserRole)
+        if idx is not None:
+            self.selection_mask[int(idx)] = item.checkState() == QtCore.Qt.Checked
+            self._update_count_label()
+
+    def _set_all(self, state: bool) -> None:
+        idxs = self._matching_indices()
+        self.selection_mask[idxs] = state
+        self._populate()
+
+    def _update_count_label(self) -> None:
+        self.count_label.setText(f"Showing {int(self.selection_mask.sum())} of {len(self.selection_mask)} cells")
+
+
 class ModernMeshPainterWindow(MeshPainterWindow):
     def __init__(self) -> None:
+        self.cell_selection_mask = None
+        self.visible_cell_indices = None
         super().__init__()
         self.setWindowTitle("Allen Brain Painter")
         self.setStyleSheet(SUNSET_STYLE)
         self.cell_label_actor = None
         self._modernize_existing_widgets()
         self._install_region_search_helpers()
-        self._update_status("Modern sunset theme active. Top toolbar removed; use the existing in-panel controls.")
+        self._add_view_cell_table_button()
+        self._update_status("Modern sunset theme active. Use View cell table after loading cells to select/deselect cells.")
 
     def _modernize_existing_widgets(self) -> None:
         self.setMinimumSize(1450, 850)
@@ -59,6 +153,29 @@ class ModernMeshPainterWindow(MeshPainterWindow):
         for widget in [self.region_search, self.region_picker, self.active_combo, self.cell_units_combo, self.cell_label_combo, self.cell_colorby_combo]:
             widget.setMinimumHeight(32)
             widget.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
+
+    def _add_view_cell_table_button(self) -> None:
+        self.view_cell_table_button = QtWidgets.QPushButton("View cell table")
+        self.view_cell_table_button.clicked.connect(self._show_cell_table_dialog)
+        self.view_cell_table_button.setEnabled(False)
+        parent = self.load_cells_button.parentWidget()
+        layout = parent.layout() if parent is not None else None
+        inserted = False
+        if layout is not None:
+            for i in range(layout.count()):
+                item = layout.itemAt(i)
+                row_layout = item.layout()
+                if row_layout is None:
+                    continue
+                for j in range(row_layout.count()):
+                    if row_layout.itemAt(j).widget() is self.clear_cells_button:
+                        row_layout.insertWidget(j + 1, self.view_cell_table_button)
+                        inserted = True
+                        break
+                if inserted:
+                    break
+        if not inserted:
+            self.statusBar().addPermanentWidget(self.view_cell_table_button)
 
     def _style_3d_scene_text(self) -> None:
         try:
@@ -159,16 +276,54 @@ class ModernMeshPainterWindow(MeshPainterWindow):
             self.plotter.reset_camera()
             self._update_status(f"Loaded {acronym}.")
 
+    # ------------------------- cell table / selection -------------------------
+    def _load_cells_dialog(self) -> None:
+        super()._load_cells_dialog()
+        if self.cell_layer is not None:
+            self.cell_selection_mask = np.ones(len(self.cell_layer.dataframe), dtype=bool)
+            self.visible_cell_indices = np.arange(len(self.cell_layer.dataframe))
+            self.view_cell_table_button.setEnabled(True)
+            self._refresh_cell_actor(update_existing_only=False)
+
+    def _show_cell_table_dialog(self) -> None:
+        if self.cell_layer is None:
+            self._update_status("Load a cell file first.")
+            return
+        if self.cell_selection_mask is None or len(self.cell_selection_mask) != len(self.cell_layer.dataframe):
+            self.cell_selection_mask = np.ones(len(self.cell_layer.dataframe), dtype=bool)
+        dialog = CellTableDialog(self.cell_layer.dataframe, self.cell_selection_mask, self)
+        dialog.setStyleSheet(SUNSET_STYLE)
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            self.cell_selection_mask = dialog.selection_mask.copy()
+            self._refresh_cell_actor(update_existing_only=False)
+            self._update_slice_views()
+            self._update_status(f"Cell selection applied: {int(self.cell_selection_mask.sum())} of {len(self.cell_selection_mask)} cells visible.")
+
+    def _selected_cell_indices(self) -> np.ndarray:
+        if self.cell_layer is None:
+            return np.array([], dtype=int)
+        n = len(self.cell_layer.dataframe)
+        if self.cell_selection_mask is None or len(self.cell_selection_mask) != n:
+            self.cell_selection_mask = np.ones(n, dtype=bool)
+        return np.where(self.cell_selection_mask)[0]
+
     def _cell_metadata_options_changed(self) -> None:
         super()._cell_metadata_options_changed()
         self._refresh_cell_labels()
 
     def _apply_cell_units_to_loaded_cells(self) -> None:
         super()._apply_cell_units_to_loaded_cells()
+        if self.cell_layer is not None:
+            self.cell_selection_mask = np.ones(len(self.cell_layer.dataframe), dtype=bool)
+            self.visible_cell_indices = np.arange(len(self.cell_layer.dataframe))
         self._refresh_cell_labels()
 
     def _clear_cells(self) -> None:
         self._remove_cell_labels()
+        self.cell_selection_mask = None
+        self.visible_cell_indices = None
+        if hasattr(self, "view_cell_table_button"):
+            self.view_cell_table_button.setEnabled(False)
         super()._clear_cells()
 
     def _refresh_cell_actor(self, update_existing_only: bool = False) -> None:
@@ -180,10 +335,18 @@ class ModernMeshPainterWindow(MeshPainterWindow):
         elif update_existing_only:
             return
 
-        pdata = pv.PolyData(self.cell_layer.xyz)
+        idx = self._selected_cell_indices()
+        self.visible_cell_indices = idx
+        if len(idx) == 0:
+            self._remove_cell_labels()
+            self._style_3d_scene_text()
+            return
+
+        pdata = pv.PolyData(self.cell_layer.xyz[idx])
+        df_vis = self.cell_layer.dataframe.iloc[idx].reset_index(drop=True)
         color_col = self.cell_colorby_combo.currentText() if hasattr(self, "cell_colorby_combo") else SINGLE_COLOR_LABEL
-        if color_col != SINGLE_COLOR_LABEL and color_col in self.cell_layer.dataframe.columns:
-            vals = pd.to_numeric(self.cell_layer.dataframe[color_col], errors="coerce").to_numpy(dtype=float)
+        if color_col != SINGLE_COLOR_LABEL and color_col in df_vis.columns:
+            vals = pd.to_numeric(df_vis[color_col], errors="coerce").to_numpy(dtype=float)
             finite = np.isfinite(vals)
             if np.any(finite):
                 vals = np.where(finite, vals, float(np.nanmedian(vals[finite])))
@@ -197,13 +360,7 @@ class ModernMeshPainterWindow(MeshPainterWindow):
                     render_points_as_spheres=True,
                     pickable=True,
                     name="cell_coordinates",
-                    scalar_bar_args={
-                        "title": color_col,
-                        "color": SCENE_TEXT_COLOR,
-                        "title_font_size": 12,
-                        "label_font_size": 10,
-                        "fmt": "%.3g",
-                    },
+                    scalar_bar_args={"title": color_col, "color": SCENE_TEXT_COLOR, "title_font_size": 12, "label_font_size": 10, "fmt": "%.3g"},
                 )
             else:
                 self.cell_layer.actor = None
@@ -241,9 +398,11 @@ class ModernMeshPainterWindow(MeshPainterWindow):
         label_col = self.cell_label_combo.currentText() if hasattr(self, "cell_label_combo") else NONE_LABEL
         if label_col == NONE_LABEL or label_col not in self.cell_layer.dataframe.columns:
             return
-        max_labels = 250
-        xyz = self.cell_layer.xyz[:max_labels]
-        labels = self.cell_layer.dataframe[label_col].astype(str).iloc[:max_labels].tolist()
+        idx = self._selected_cell_indices()[:250]
+        if len(idx) == 0:
+            return
+        xyz = self.cell_layer.xyz[idx]
+        labels = self.cell_layer.dataframe.iloc[idx][label_col].astype(str).tolist()
         try:
             self.cell_label_actor = self.plotter.add_point_labels(
                 xyz,
@@ -262,6 +421,23 @@ class ModernMeshPainterWindow(MeshPainterWindow):
         except Exception:
             self.cell_label_actor = None
 
+    def _cell_status_text(self, point_id: int) -> str:
+        if self.cell_layer is None:
+            return ""
+        if self.visible_cell_indices is not None and 0 <= point_id < len(self.visible_cell_indices):
+            point_id = int(self.visible_cell_indices[point_id])
+        row = self.cell_layer.dataframe.iloc[point_id]
+        label_col = self.cell_label_combo.currentText() if hasattr(self, "cell_label_combo") else NONE_LABEL
+        label = ""
+        if label_col != NONE_LABEL and label_col in self.cell_layer.dataframe.columns:
+            label = f"{label_col}: {row[label_col]} | "
+        color_col = self.cell_colorby_combo.currentText() if hasattr(self, "cell_colorby_combo") else SINGLE_COLOR_LABEL
+        color_txt = ""
+        if color_col != SINGLE_COLOR_LABEL and color_col in self.cell_layer.dataframe.columns:
+            color_txt = f" | {color_col}: {row[color_col]}"
+        x, y, z = self.cell_layer.xyz[point_id]
+        return f"Cell {point_id + 1} | {label}x/y/z um: {x:.1f}, {y:.1f}, {z:.1f}{color_txt}"
+
     def _on_left_press(self, obj, event) -> None:
         if self.active_area and self.active_area in self.regions:
             return super()._on_left_press(obj, event)
@@ -275,13 +451,16 @@ class ModernMeshPainterWindow(MeshPainterWindow):
     def _show_nearest_cell_from_mouse(self, max_distance_um: float = 500, quiet: bool = False) -> None:
         if self.cell_layer is None or self.cell_layer.xyz.size == 0:
             return
+        idx = self._selected_cell_indices()
+        if len(idx) == 0:
+            return
         try:
             iren = self.plotter.iren.interactor
             x, y = iren.GetEventPosition()
             picked_position = None
             if hasattr(self, "point_picker") and self.point_picker.Pick(x, y, 0, self.plotter.renderer):
                 point_id = int(self.point_picker.GetPointId())
-                if 0 <= point_id < self.cell_layer.xyz.shape[0]:
+                if 0 <= point_id < len(idx):
                     self._update_status(self._cell_status_text(point_id))
                     return
                 picked_position = np.asarray(self.point_picker.GetPickPosition(), dtype=float)
@@ -289,12 +468,12 @@ class ModernMeshPainterWindow(MeshPainterWindow):
                 picked_position = np.asarray(self.cell_picker.GetPickPosition(), dtype=float)
             if picked_position is None or not np.all(np.isfinite(picked_position)):
                 return
-            distances = np.linalg.norm(self.cell_layer.xyz - picked_position[None, :], axis=1)
-            nearest = int(np.argmin(distances))
-            if distances[nearest] <= max_distance_um:
-                self._update_status(self._cell_status_text(nearest))
+            distances = np.linalg.norm(self.cell_layer.xyz[idx] - picked_position[None, :], axis=1)
+            nearest_visible = int(np.argmin(distances))
+            if distances[nearest_visible] <= max_distance_um:
+                self._update_status(self._cell_status_text(nearest_visible))
             elif not quiet:
-                self._update_status("No nearby cell found at click position.")
+                self._update_status("No nearby visible cell found at click position.")
         except Exception:
             return
 
