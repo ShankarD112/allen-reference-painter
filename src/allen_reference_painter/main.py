@@ -6,7 +6,12 @@ progressively moves logic into smaller modules.
 
 from __future__ import annotations
 
-from .app_modern import main
+from . import app_modern
+from .screenshot_legend_patch import apply_screenshot_legend_patch
+
+
+apply_screenshot_legend_patch(app_modern.ModernMeshPainterWindow)
+main = app_modern.main
 
 
 if __name__ == "__main__":
