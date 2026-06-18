@@ -37,12 +37,8 @@ QScrollBar::handle:vertical, QScrollBar::handle:horizontal { background: #6b4a3a
 QScrollBar::handle:hover { background: #ff9f1c; }
 """
 
-# NOTE: This file intentionally preserves the full modern app code pattern but
-# only changes the heat legend styling from the previous version.
 
 class CellTableDialog(QtWidgets.QDialog):
-    """Table popup for selecting which imported cells are visible."""
-
     def __init__(self, dataframe: pd.DataFrame, selection_mask: np.ndarray, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Imported Cell Table")
@@ -109,12 +105,11 @@ class CellTableDialog(QtWidgets.QDialog):
         self._update_count_label()
 
     def _item_changed(self, item: QtWidgets.QTableWidgetItem) -> None:
-        if item.column() != 0:
-            return
-        idx = item.data(QtCore.Qt.UserRole)
-        if idx is not None:
-            self.selection_mask[int(idx)] = item.checkState() == QtCore.Qt.Checked
-            self._update_count_label()
+        if item.column() == 0:
+            idx = item.data(QtCore.Qt.UserRole)
+            if idx is not None:
+                self.selection_mask[int(idx)] = item.checkState() == QtCore.Qt.Checked
+                self._update_count_label()
 
     def _set_all(self, state: bool) -> None:
         idxs = self._matching_indices()
@@ -129,15 +124,16 @@ class ModernMeshPainterWindow(MeshPainterWindow):
     def __init__(self) -> None:
         self.cell_selection_mask = None
         self.visible_cell_indices = None
+        self.scalar_bar_card_actor = None
         super().__init__()
         self.setWindowTitle("Allen Brain Painter")
         self.setStyleSheet(SUNSET_STYLE)
         self.cell_label_actor = None
-        self.scalar_bar_card_actor = None
         self._modernize_existing_widgets()
         self._install_region_search_helpers()
         self._add_view_cell_table_button()
-        self._update_status("Modern sunset theme active. Heat legend now has a card-style backing.")
+        self._add_2d_cell_view_controls()
+        self._update_status("Modern sunset theme active. 2D cell views can now use heatmap colors.")
 
     def _modernize_existing_widgets(self) -> None:
         self.setMinimumSize(1450, 850)
@@ -161,8 +157,7 @@ class ModernMeshPainterWindow(MeshPainterWindow):
         inserted = False
         if layout is not None:
             for i in range(layout.count()):
-                item = layout.itemAt(i)
-                row_layout = item.layout()
+                row_layout = layout.itemAt(i).layout()
                 if row_layout is None:
                     continue
                 for j in range(row_layout.count()):
@@ -174,6 +169,34 @@ class ModernMeshPainterWindow(MeshPainterWindow):
                     break
         if not inserted:
             self.statusBar().addPermanentWidget(self.view_cell_table_button)
+
+    def _add_2d_cell_view_controls(self) -> None:
+        self.coronal_cells_2d_checkbox = QtWidgets.QCheckBox("Cells on coronal")
+        self.coronal_cells_2d_checkbox.setChecked(True)
+        self.coronal_cells_2d_checkbox.stateChanged.connect(lambda _: self._update_slice_views())
+        self.sagittal_cells_2d_checkbox = QtWidgets.QCheckBox("Cells on sagittal")
+        self.sagittal_cells_2d_checkbox.setChecked(True)
+        self.sagittal_cells_2d_checkbox.stateChanged.connect(lambda _: self._update_slice_views())
+        self.cell_heatmap_2d_checkbox = QtWidgets.QCheckBox("2D cells use heatmap colors")
+        self.cell_heatmap_2d_checkbox.setChecked(True)
+        self.cell_heatmap_2d_checkbox.stateChanged.connect(lambda _: self._update_slice_views())
+        try:
+            layout = self.coronal_label.parentWidget().layout()
+            cor_idx = layout.indexOf(self.coronal_slider)
+            sag_idx = layout.indexOf(self.sagittal_slider)
+            row_a = QtWidgets.QHBoxLayout()
+            row_a.addWidget(self.coronal_cells_2d_checkbox)
+            row_a.addWidget(self.cell_heatmap_2d_checkbox)
+            row_a.addStretch(1)
+            layout.insertLayout(cor_idx + 1, row_a)
+            row_b = QtWidgets.QHBoxLayout()
+            row_b.addWidget(self.sagittal_cells_2d_checkbox)
+            row_b.addStretch(1)
+            layout.insertLayout(sag_idx + 2, row_b)
+        except Exception:
+            self.statusBar().addPermanentWidget(self.coronal_cells_2d_checkbox)
+            self.statusBar().addPermanentWidget(self.sagittal_cells_2d_checkbox)
+            self.statusBar().addPermanentWidget(self.cell_heatmap_2d_checkbox)
 
     def _style_3d_scene_text(self) -> None:
         try:
@@ -229,11 +252,9 @@ class ModernMeshPainterWindow(MeshPainterWindow):
         except Exception:
             pass
         try:
-            # A subtle 2D card behind the scalar bar. Viewport coords.
             import vtk
             points = vtk.vtkPoints()
-            pts = [(0.535, 0.045, 0), (0.955, 0.045, 0), (0.955, 0.17, 0), (0.535, 0.17, 0)]
-            for p in pts:
+            for p in [(0.535, 0.045, 0), (0.955, 0.045, 0), (0.955, 0.17, 0), (0.535, 0.17, 0)]:
                 points.InsertNextPoint(*p)
             polygon = vtk.vtkPolygon()
             polygon.GetPointIds().SetNumberOfIds(4)
@@ -287,6 +308,63 @@ class ModernMeshPainterWindow(MeshPainterWindow):
             self.sagittal_canvas.draw_idle()
         except Exception:
             pass
+
+    def _overlay_points(self, ax, plane: str, plane_um: float) -> None:
+        half_thick = self.slice_thickness_slider.value() / 2
+        if self.show_painted_2d_checkbox.isChecked():
+            for region in self.regions.values():
+                if not region.visible or not region.painted_faces:
+                    continue
+                pts = region.face_centroids[sorted(region.painted_faces)]
+                if plane == "coronal":
+                    near = pts[np.abs(pts[:, 0] - plane_um) <= half_thick]
+                    if near.size:
+                        ax.scatter(near[:, 2], near[:, 1], s=9, c=self.paint_color, edgecolors="none")
+                else:
+                    near = pts[np.abs(pts[:, 2] - plane_um) <= half_thick]
+                    if near.size:
+                        ax.scatter(near[:, 0], near[:, 1], s=9, c=self.paint_color, edgecolors="none")
+        self._overlay_cells_on_2d(ax, plane, plane_um, half_thick)
+        if self.last_picked_point is not None:
+            if plane == "coronal":
+                ax.scatter([self.last_picked_point[2]], [self.last_picked_point[1]], s=65, c="#ffd400", edgecolors="black")
+            else:
+                ax.scatter([self.last_picked_point[0]], [self.last_picked_point[1]], s=65, c="#ffd400", edgecolors="black")
+        if self.symmetry_checkbox.isChecked() and self.last_mirror_point is not None:
+            if plane == "coronal":
+                ax.scatter([self.last_mirror_point[2]], [self.last_mirror_point[1]], s=65, c=self.mirror_color, edgecolors="black")
+            else:
+                ax.scatter([self.last_mirror_point[0]], [self.last_mirror_point[1]], s=65, c=self.mirror_color, edgecolors="black")
+
+    def _overlay_cells_on_2d(self, ax, plane: str, plane_um: float, half_thick: float) -> None:
+        if not self.show_cells_2d_checkbox.isChecked() or self.cell_layer is None:
+            return
+        if plane == "coronal" and hasattr(self, "coronal_cells_2d_checkbox") and not self.coronal_cells_2d_checkbox.isChecked():
+            return
+        if plane == "sagittal" and hasattr(self, "sagittal_cells_2d_checkbox") and not self.sagittal_cells_2d_checkbox.isChecked():
+            return
+        idx = self._selected_cell_indices()
+        if len(idx) == 0:
+            return
+        pts = self.cell_layer.xyz[idx]
+        if plane == "coronal":
+            mask = np.abs(pts[:, 0] - plane_um) <= half_thick
+            xplot, yplot = pts[mask, 2], pts[mask, 1]
+        else:
+            mask = np.abs(pts[:, 2] - plane_um) <= half_thick
+            xplot, yplot = pts[mask, 0], pts[mask, 1]
+        if not np.any(mask):
+            return
+        color_col = self.cell_colorby_combo.currentText() if hasattr(self, "cell_colorby_combo") else SINGLE_COLOR_LABEL
+        use_heat = getattr(self, "cell_heatmap_2d_checkbox", None) is None or self.cell_heatmap_2d_checkbox.isChecked()
+        if use_heat and color_col != SINGLE_COLOR_LABEL and color_col in self.cell_layer.dataframe.columns:
+            vals_all = pd.to_numeric(self.cell_layer.dataframe.iloc[idx][color_col], errors="coerce").to_numpy(dtype=float)
+            finite = np.isfinite(vals_all)
+            if np.any(finite):
+                vals_all = np.where(finite, vals_all, float(np.nanmedian(vals_all[finite])))
+                ax.scatter(xplot, yplot, c=vals_all[mask], cmap="inferno", vmin=float(np.min(vals_all)), vmax=float(np.max(vals_all)), s=34, edgecolors="#06101f", linewidths=0.45)
+                return
+        ax.scatter(xplot, yplot, s=30, c=self.cell_layer.color, edgecolors="#06101f", linewidths=0.45)
 
     def _install_region_search_helpers(self) -> None:
         completer = QtWidgets.QCompleter(self.all_region_labels, self)
@@ -372,6 +450,7 @@ class ModernMeshPainterWindow(MeshPainterWindow):
         super()._cell_metadata_options_changed()
         self._refresh_cell_labels()
         self._force_scalar_bar_text_light()
+        self._update_slice_views()
 
     def _apply_cell_units_to_loaded_cells(self) -> None:
         super()._apply_cell_units_to_loaded_cells()
@@ -380,6 +459,7 @@ class ModernMeshPainterWindow(MeshPainterWindow):
             self.visible_cell_indices = np.arange(len(self.cell_layer.dataframe))
         self._refresh_cell_labels()
         self._force_scalar_bar_text_light()
+        self._update_slice_views()
 
     def _clear_cells(self) -> None:
         self._remove_cell_labels()
@@ -434,6 +514,7 @@ class ModernMeshPainterWindow(MeshPainterWindow):
         self._refresh_cell_labels()
         self._style_3d_scene_text()
         self._force_scalar_bar_text_light()
+        self._update_slice_views()
 
     def _remove_cell_labels(self) -> None:
         try:
