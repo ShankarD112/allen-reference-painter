@@ -1,0 +1,11 @@
+numpy
+pandas
+openpyxl
+matplotlib
+trimesh
+pyvista
+pyvistaqt
+qtpy
+PySide6
+vtk
+brainglobe-atlasapi
