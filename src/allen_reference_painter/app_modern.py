@@ -10,7 +10,8 @@ from qtpy import QtCore, QtWidgets
 from .app import MeshPainterWindow, NONE_LABEL, SINGLE_COLOR_LABEL
 
 SCENE_TEXT_COLOR = "#fff7ef"
-SCENE_BACKGROUND = "#0d0c0b"
+SCENE_BACKGROUND = "#0b1020"
+SCENE_GRID_COLOR = "#7c8aa5"
 SUNSET_STYLE = """
 QMainWindow, QWidget { background-color: #11100f; color: #f7f1eb; font-family: Segoe UI, Inter, Arial, sans-serif; font-size: 12px; }
 QLabel { color: #f7f1eb; }
@@ -139,7 +140,7 @@ class ModernMeshPainterWindow(MeshPainterWindow):
         self._modernize_existing_widgets()
         self._install_region_search_helpers()
         self._add_view_cell_table_button()
-        self._update_status("Modern sunset theme active. Use View cell table after loading cells to select/deselect cells.")
+        self._update_status("Modern sunset theme active. The 3D scene uses a midnight-blue background and compact heat legend.")
 
     def _modernize_existing_widgets(self) -> None:
         self.setMinimumSize(1450, 850)
@@ -149,7 +150,7 @@ class ModernMeshPainterWindow(MeshPainterWindow):
         self.region_table.setMinimumWidth(430)
         self.region_table.setMinimumHeight(250)
         for fig in [self.coronal_fig, self.sagittal_fig]:
-            fig.patch.set_facecolor("#11100f")
+            fig.patch.set_facecolor(SCENE_BACKGROUND)
         for widget in [self.region_search, self.region_picker, self.active_combo, self.cell_units_combo, self.cell_label_combo, self.cell_colorby_combo]:
             widget.setMinimumHeight(32)
             widget.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
@@ -181,7 +182,7 @@ class ModernMeshPainterWindow(MeshPainterWindow):
         try:
             self.plotter.set_background(SCENE_BACKGROUND)
             self.plotter.show_grid(
-                color=SCENE_TEXT_COLOR,
+                color=SCENE_GRID_COLOR,
                 font_size=8,
                 grid="back",
                 location="outer",
@@ -202,15 +203,9 @@ class ModernMeshPainterWindow(MeshPainterWindow):
             pass
 
     def _force_scalar_bar_text_light(self) -> None:
-        """Force VTK scalar-bar title/label text to light colors."""
         try:
             scalar_bars = getattr(self.plotter, "scalar_bars", {})
-            if hasattr(scalar_bars, "values"):
-                actors = list(scalar_bars.values())
-            elif isinstance(scalar_bars, dict):
-                actors = list(scalar_bars.values())
-            else:
-                actors = []
+            actors = list(scalar_bars.values()) if hasattr(scalar_bars, "values") else []
             for actor in actors:
                 for getter in ["GetTitleTextProperty", "GetLabelTextProperty", "GetAnnotationTextProperty"]:
                     if hasattr(actor, getter):
@@ -218,8 +213,16 @@ class ModernMeshPainterWindow(MeshPainterWindow):
                         prop.SetColor(1.0, 0.97, 0.94)
                         prop.SetOpacity(1.0)
                         prop.BoldOn()
-                if hasattr(actor, "SetTextPositionToPrecedeScalarBar"):
-                    actor.SetTextPositionToPrecedeScalarBar()
+                if hasattr(actor, "SetOrientationToHorizontal"):
+                    actor.SetOrientationToHorizontal()
+                if hasattr(actor, "SetPosition"):
+                    actor.SetPosition(0.58, 0.055)
+                if hasattr(actor, "SetWidth"):
+                    actor.SetWidth(0.34)
+                if hasattr(actor, "SetHeight"):
+                    actor.SetHeight(0.055)
+                if hasattr(actor, "SetMaximumNumberOfColors"):
+                    actor.SetMaximumNumberOfColors(96)
                 if hasattr(actor, "Modified"):
                     actor.Modified()
         except Exception:
@@ -230,12 +233,12 @@ class ModernMeshPainterWindow(MeshPainterWindow):
         self._style_3d_scene_text()
 
     def _style_slice_axes(self, ax) -> None:
-        ax.set_facecolor("#11100f")
+        ax.set_facecolor(SCENE_BACKGROUND)
         ax.xaxis.label.set_color(SCENE_TEXT_COLOR)
         ax.yaxis.label.set_color(SCENE_TEXT_COLOR)
         ax.tick_params(axis="both", colors=SCENE_TEXT_COLOR, labelsize=8)
         for spine in ax.spines.values():
-            spine.set_color("#6b4a3a")
+            spine.set_color("#7c8aa5")
 
     def _plot_coronal(self) -> None:
         super()._plot_coronal()
@@ -300,6 +303,21 @@ class ModernMeshPainterWindow(MeshPainterWindow):
             self._style_3d_scene_text()
             self.plotter.reset_camera()
             self._update_status(f"Loaded {acronym}.")
+
+    def _compact_scalar_bar_args(self, title: str) -> dict:
+        return {
+            "title": title,
+            "color": SCENE_TEXT_COLOR,
+            "title_font_size": 10,
+            "label_font_size": 8,
+            "fmt": "%.3g",
+            "n_labels": 4,
+            "vertical": False,
+            "position_x": 0.58,
+            "position_y": 0.055,
+            "width": 0.34,
+            "height": 0.055,
+        }
 
     def _load_cells_dialog(self) -> None:
         super()._load_cells_dialog()
@@ -387,13 +405,7 @@ class ModernMeshPainterWindow(MeshPainterWindow):
                     render_points_as_spheres=True,
                     pickable=True,
                     name="cell_coordinates",
-                    scalar_bar_args={
-                        "title": color_col,
-                        "color": SCENE_TEXT_COLOR,
-                        "title_font_size": 12,
-                        "label_font_size": 10,
-                        "fmt": "%.3g",
-                    },
+                    scalar_bar_args=self._compact_scalar_bar_args(color_col),
                 )
                 self._force_scalar_bar_text_light()
             else:
@@ -447,7 +459,7 @@ class ModernMeshPainterWindow(MeshPainterWindow):
                 text_color=SCENE_TEXT_COLOR,
                 point_color="#ff9f1c",
                 point_size=3,
-                shape_color="#211713",
+                shape_color="#111827",
                 shape_opacity=0.55,
                 always_visible=True,
                 pickable=False,
