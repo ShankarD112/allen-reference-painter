@@ -13,11 +13,16 @@ Python desktop app for viewing Allen Mouse atlas meshes, painting custom 3D ROIs
 
 ## Install
 
+From the repo root:
+
 ```bash
 conda create -n allen-painter python=3.11
 conda activate allen-painter
 pip install -r requirements.txt
+pip install -e .
 ```
+
+The `pip install -e .` step is important because this repo uses a `src/` package layout. Without that step, Python may not find `allen_reference_painter.app`.
 
 ## Download/check atlas
 
@@ -29,4 +34,10 @@ python -c "from brainglobe_atlasapi.bg_atlas import BrainGlobeAtlas; BrainGlobeA
 
 ```bash
 python -m allen_reference_painter.app
+```
+
+Alternative direct run from the repo root:
+
+```bash
+python src/allen_reference_painter/app.py
 ```
