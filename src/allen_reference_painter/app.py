@@ -33,9 +33,6 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 PROJECTS_DIR.mkdir(exist_ok=True)
 
 ATLAS_NAME = "allen_mouse_25um"
-
-# Start with no loaded anatomical region meshes. The transparent reference brain
-# shell loads first, then users choose specific regions/subregions to add.
 STARTER_AREAS: list[str] = []
 
 DEFAULT_PAINT_COLOR = "#ff3333"
@@ -43,8 +40,6 @@ DEFAULT_MIRROR_COLOR = "#00d7ff"
 DEFAULT_CELL_COLOR = "#00d7ff"
 DEFAULT_REGION_COLOR = "#dddddd"
 
-# Prefer this soft local palette for the regions we commonly use. Other Allen
-# structures fall back to the atlas rgb_triplet, then DEFAULT_REGION_COLOR.
 FALLBACK_REGION_COLORS = {
     "ENT": "#c8c5ff",
     "PAR": "#d4ffff",
@@ -56,6 +51,13 @@ FALLBACK_REGION_COLORS = {
     "APr": "#f0fbff",
     "PERI": "#f5d8f7",
     "ECT": "#f2faf8",
+}
+
+CELL_UNIT_OPTIONS = {
+    "Microns / atlas space (um)": "um",
+    "Millimeters (mm -> um x1000)": "mm",
+    "Voxel indices (index -> um using atlas resolution)": "voxel",
+    "Auto detect": "auto",
 }
 
 
@@ -101,8 +103,8 @@ class RegionMesh:
 class CellLayer:
     path: str
     dataframe: pd.DataFrame
-    xyz: np.ndarray
     original_xyz: np.ndarray
+    xyz: np.ndarray
     coordinate_mode: str
     color: str = DEFAULT_CELL_COLOR
     actor: object | None = None
@@ -131,8 +133,6 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         self.last_picked_point: np.ndarray | None = None
         self.last_mirror_point: np.ndarray | None = None
         self.reference_actor = None
-        self.last_pick_actor = None
-        self.last_mirror_actor = None
 
         self.structure_index = self._build_structure_index()
         self.all_region_labels = self._all_region_labels()
@@ -147,9 +147,9 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         self._update_slice_views()
         self._update_status("Ready. Search/load a region or import cells. No region meshes are preloaded.")
 
-    # ---------------------------------------------------------------------
+    # ------------------------------------------------------------------
     # Atlas helpers
-    # ---------------------------------------------------------------------
+    # ------------------------------------------------------------------
     def _build_structure_index(self) -> dict[str, dict]:
         out = {}
         for sid, info in self.atlas.structures.items():
@@ -165,10 +165,10 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         return out
 
     def _all_region_labels(self) -> list[str]:
-        labels = []
-        for acronym, info in sorted(self.structure_index.items(), key=lambda x: x[0].lower()):
-            labels.append(f"{acronym} - {info['name']}")
-        return labels
+        return [
+            f"{acronym} - {info['name']}"
+            for acronym, info in sorted(self.structure_index.items(), key=lambda x: x[0].lower())
+        ]
 
     def _structure_id(self, acronym: str) -> int | None:
         return self.structure_index.get(acronym, {}).get("id")
@@ -193,16 +193,14 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
                 ids.add(int(sid))
         return ids
 
-    # ---------------------------------------------------------------------
+    # ------------------------------------------------------------------
     # UI
-    # ---------------------------------------------------------------------
+    # ------------------------------------------------------------------
     def _build_ui(self) -> None:
         central = QtWidgets.QWidget()
         self.setCentralWidget(central)
         main_layout = QtWidgets.QHBoxLayout(central)
 
-        # Left panel: region loading/table only, so it is no longer crowded by
-        # paint/brush options.
         left = QtWidgets.QWidget()
         left.setFixedWidth(470)
         left_layout = QtWidgets.QVBoxLayout(left)
@@ -244,7 +242,6 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         self.region_table.cellClicked.connect(self._region_table_clicked)
         left_layout.addWidget(self.region_table, stretch=1)
 
-        # Center panel: top tool strips + 3D viewer.
         center = QtWidgets.QWidget()
         center_layout = QtWidgets.QVBoxLayout(center)
         center_layout.setContentsMargins(0, 0, 0, 0)
@@ -313,10 +310,21 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         self.paint_opacity_slider = self._compact_slider(row3, "Paint opacity", 10, 100, 90, self._refresh_scene)
         self.brain_opacity_slider = self._compact_slider(row3, "Brain opacity", 0, 100, 8, self._refresh_scene)
         self.slice_thickness_slider = self._compact_slider(row3, "Slice thick um", 25, 1000, 250, self._update_slice_views)
-        self.cell_size_slider = self._compact_slider(row3, "Cell size", 4, 40, 18, self._refresh_cell_actor)
+        self.cell_size_slider = self._compact_slider(row3, "Cell size", 4, 60, 22, self._refresh_cell_actor)
         top_layout.addLayout(row3)
 
         row4 = QtWidgets.QHBoxLayout()
+        row4.addWidget(QtWidgets.QLabel("Cell units:"))
+        self.cell_units_combo = QtWidgets.QComboBox()
+        self.cell_units_combo.addItems(list(CELL_UNIT_OPTIONS.keys()))
+        self.cell_units_combo.setCurrentText("Microns / atlas space (um)")
+        self.cell_units_combo.currentTextChanged.connect(lambda _: self._apply_cell_units_to_loaded_cells())
+        row4.addWidget(self.cell_units_combo)
+
+        self.apply_cell_units_button = QtWidgets.QPushButton("Apply units")
+        self.apply_cell_units_button.clicked.connect(self._apply_cell_units_to_loaded_cells)
+        row4.addWidget(self.apply_cell_units_button)
+
         self.load_cells_button = QtWidgets.QPushButton("Load cells CSV/TSV/XLSX")
         self.load_cells_button.clicked.connect(self._load_cells_dialog)
         row4.addWidget(self.load_cells_button)
@@ -342,7 +350,6 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         self.plotter = QtInteractor(central)
         center_layout.addWidget(self.plotter.interactor, stretch=1)
 
-        # Right panel: 2D slice views.
         right = QtWidgets.QWidget()
         right.setFixedWidth(570)
         right_layout = QtWidgets.QVBoxLayout(right)
@@ -398,9 +405,9 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         layout.addWidget(box)
         return slider
 
-    # ---------------------------------------------------------------------
+    # ------------------------------------------------------------------
     # Loading/rendering
-    # ---------------------------------------------------------------------
+    # ------------------------------------------------------------------
     def _load_reference_brain_shell(self) -> None:
         self.plotter.clear()
         for acronym in ["root", "grey", "CH", "CTX", "HPF"]:
@@ -550,9 +557,9 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         self.plotter.render()
         self._update_slice_views()
 
-    # ---------------------------------------------------------------------
+    # ------------------------------------------------------------------
     # Slices
-    # ---------------------------------------------------------------------
+    # ------------------------------------------------------------------
     def _um_to_index(self, value_um: float, axis: int) -> int:
         return int(np.clip(round(value_um / self.resolution_um[axis]), 0, self.shape[axis] - 1))
 
@@ -642,9 +649,9 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
             else:
                 ax.scatter([self.last_mirror_point[0]], [self.last_mirror_point[1]], s=65, c=self.mirror_color, edgecolors="black")
 
-    # ---------------------------------------------------------------------
+    # ------------------------------------------------------------------
     # Painting
-    # ---------------------------------------------------------------------
+    # ------------------------------------------------------------------
     def _setup_picking(self) -> None:
         self.cell_picker = vtk.vtkCellPicker()
         self.cell_picker.SetTolerance(0.0008)
@@ -741,9 +748,9 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
             sphere = pv.Sphere(radius=90, center=self.last_mirror_point)
             self.plotter.add_mesh(sphere, color=self.mirror_color, pickable=False, name="last_mirror")
 
-    # ---------------------------------------------------------------------
+    # ------------------------------------------------------------------
     # Cells
-    # ---------------------------------------------------------------------
+    # ------------------------------------------------------------------
     def _load_cells_dialog(self) -> None:
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
             self,
@@ -758,17 +765,59 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
             x_col, y_col, z_col = self._find_xyz_columns(df)
             original_xyz = df[[x_col, y_col, z_col]].astype(float).to_numpy()
             original_xyz = original_xyz[np.all(np.isfinite(original_xyz), axis=1)]
-            xyz, mode = self._normalize_cell_coordinates(original_xyz)
-            self.cell_layer = CellLayer(path=path, dataframe=df, xyz=xyz, original_xyz=original_xyz, coordinate_mode=mode)
+            xyz, mode = self._convert_cell_coordinates(original_xyz)
+            self.cell_layer = CellLayer(path=path, dataframe=df, original_xyz=original_xyz, xyz=xyz, coordinate_mode=mode)
             self._refresh_cell_actor(update_existing_only=False)
-            center = xyz.mean(axis=0)
-            self.coronal_slider.setValue(self._um_to_index(center[0], 0))
-            self.sagittal_slider.setValue(self._um_to_index(center[2], 2))
+            self._center_view_on_cells()
             self.plotter.reset_camera()
             self._update_status(f"Loaded {xyz.shape[0]} cells from {Path(path).name} ({mode})")
             self._refresh_scene()
         except Exception as exc:
             self._update_status(f"Could not load cells: {exc}")
+
+    def _selected_cell_unit_code(self) -> str:
+        label = self.cell_units_combo.currentText()
+        return CELL_UNIT_OPTIONS.get(label, "um")
+
+    def _convert_cell_coordinates(self, xyz: np.ndarray) -> tuple[np.ndarray, str]:
+        if xyz.size == 0:
+            return xyz, "empty"
+        mode = self._selected_cell_unit_code()
+        if mode == "um":
+            return xyz.copy(), "microns"
+        if mode == "mm":
+            return xyz * 1000.0, "millimeters converted to microns x1000"
+        if mode == "voxel":
+            return xyz * np.array(self.resolution_um)[None, :], "voxel indices converted to microns"
+
+        max_vals = np.nanmax(xyz, axis=0)
+        shape_arr = np.array(self.shape, dtype=float)
+        size_arr = np.array(self.size_um, dtype=float)
+        if np.all(max_vals <= shape_arr + 5):
+            return xyz * np.array(self.resolution_um)[None, :], "auto: voxel indices converted to microns"
+        if np.all(max_vals < 30):
+            return xyz * 1000.0, "auto: millimeters converted to microns x1000"
+        if np.any(max_vals > size_arr * 1.25):
+            return xyz.copy(), "auto: microns, some coordinates outside atlas bounds"
+        return xyz.copy(), "auto: microns"
+
+    def _apply_cell_units_to_loaded_cells(self) -> None:
+        if self.cell_layer is None:
+            return
+        xyz, mode = self._convert_cell_coordinates(self.cell_layer.original_xyz)
+        self.cell_layer.xyz = xyz
+        self.cell_layer.coordinate_mode = mode
+        self._refresh_cell_actor(update_existing_only=False)
+        self._center_view_on_cells()
+        self._update_status(f"Applied cell units: {mode}")
+        self._refresh_scene()
+
+    def _center_view_on_cells(self) -> None:
+        if self.cell_layer is None or self.cell_layer.xyz.size == 0:
+            return
+        center = self.cell_layer.xyz.mean(axis=0)
+        self.coronal_slider.setValue(self._um_to_index(center[0], 0))
+        self.sagittal_slider.setValue(self._um_to_index(center[2], 2))
 
     def _refresh_cell_actor(self, update_existing_only: bool = False) -> None:
         if self.cell_layer is None:
@@ -787,25 +836,6 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
             pickable=False,
             name="cell_coordinates",
         )
-
-    def _normalize_cell_coordinates(self, xyz: np.ndarray) -> tuple[np.ndarray, str]:
-        if xyz.size == 0:
-            return xyz, "empty"
-        max_vals = np.nanmax(xyz, axis=0)
-        shape_arr = np.array(self.shape, dtype=float)
-        size_arr = np.array(self.size_um, dtype=float)
-
-        # If the coordinates look like voxel indices rather than microns, convert
-        # them to Allen atlas microns. This catches common Excel exports where
-        # x/y/z are annotation indices.
-        if np.all(max_vals <= shape_arr + 5):
-            return xyz * np.array(self.resolution_um)[None, :], "voxel indices converted to microns"
-
-        # Otherwise assume atlas-space microns. Warn in the status if the points
-        # are far outside the current atlas bounds, but still show them.
-        if np.any(max_vals > size_arr * 1.25):
-            return xyz, "microns, some coordinates outside atlas bounds"
-        return xyz, "microns"
 
     def _read_table(self, path: Path) -> pd.DataFrame:
         if path.suffix.lower() in {".xlsx", ".xls"}:
@@ -831,9 +861,9 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
             found.append(col)
         return found
 
-    # ---------------------------------------------------------------------
+    # ------------------------------------------------------------------
     # Buttons / saving
-    # ---------------------------------------------------------------------
+    # ------------------------------------------------------------------
     def _set_active_area(self, acronym: str) -> None:
         if acronym in self.regions:
             self.active_area = acronym
@@ -956,12 +986,15 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         if self.cell_layer is not None:
             cells_path = scene_dir / "imported_cells_atlas_coordinates.csv"
             out = self.cell_layer.dataframe.copy()
-            out["app_x_um"] = self.cell_layer.xyz[:, 0]
-            out["app_y_um"] = self.cell_layer.xyz[:, 1]
-            out["app_z_um"] = self.cell_layer.xyz[:, 2]
+            n = min(len(out), self.cell_layer.xyz.shape[0])
+            out = out.iloc[:n].copy()
+            out["app_x_um"] = self.cell_layer.xyz[:n, 0]
+            out["app_y_um"] = self.cell_layer.xyz[:n, 1]
+            out["app_z_um"] = self.cell_layer.xyz[:n, 2]
             out.to_csv(cells_path, index=False)
             manifest["cells_file"] = str(cells_path)
             manifest["cell_coordinate_mode"] = self.cell_layer.coordinate_mode
+            manifest["cell_units_dropdown"] = self.cell_units_combo.currentText()
         with open(scene_dir / "scene_manifest.json", "w") as f:
             json.dump(manifest, f, indent=2)
         self._update_status(f"Saved scene outputs: {scene_dir}")
