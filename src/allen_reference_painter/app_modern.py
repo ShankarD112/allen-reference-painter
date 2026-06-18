@@ -195,8 +195,33 @@ class ModernMeshPainterWindow(MeshPainterWindow):
             self.plotter.add_axes(line_width=2, color=SCENE_TEXT_COLOR)
         except Exception:
             pass
+        self._force_scalar_bar_text_light()
         try:
             self.plotter.render()
+        except Exception:
+            pass
+
+    def _force_scalar_bar_text_light(self) -> None:
+        """Force VTK scalar-bar title/label text to light colors."""
+        try:
+            scalar_bars = getattr(self.plotter, "scalar_bars", {})
+            if hasattr(scalar_bars, "values"):
+                actors = list(scalar_bars.values())
+            elif isinstance(scalar_bars, dict):
+                actors = list(scalar_bars.values())
+            else:
+                actors = []
+            for actor in actors:
+                for getter in ["GetTitleTextProperty", "GetLabelTextProperty", "GetAnnotationTextProperty"]:
+                    if hasattr(actor, getter):
+                        prop = getattr(actor, getter)()
+                        prop.SetColor(1.0, 0.97, 0.94)
+                        prop.SetOpacity(1.0)
+                        prop.BoldOn()
+                if hasattr(actor, "SetTextPositionToPrecedeScalarBar"):
+                    actor.SetTextPositionToPrecedeScalarBar()
+                if hasattr(actor, "Modified"):
+                    actor.Modified()
         except Exception:
             pass
 
@@ -276,7 +301,6 @@ class ModernMeshPainterWindow(MeshPainterWindow):
             self.plotter.reset_camera()
             self._update_status(f"Loaded {acronym}.")
 
-    # ------------------------- cell table / selection -------------------------
     def _load_cells_dialog(self) -> None:
         super()._load_cells_dialog()
         if self.cell_layer is not None:
@@ -284,6 +308,7 @@ class ModernMeshPainterWindow(MeshPainterWindow):
             self.visible_cell_indices = np.arange(len(self.cell_layer.dataframe))
             self.view_cell_table_button.setEnabled(True)
             self._refresh_cell_actor(update_existing_only=False)
+            self._force_scalar_bar_text_light()
 
     def _show_cell_table_dialog(self) -> None:
         if self.cell_layer is None:
@@ -310,6 +335,7 @@ class ModernMeshPainterWindow(MeshPainterWindow):
     def _cell_metadata_options_changed(self) -> None:
         super()._cell_metadata_options_changed()
         self._refresh_cell_labels()
+        self._force_scalar_bar_text_light()
 
     def _apply_cell_units_to_loaded_cells(self) -> None:
         super()._apply_cell_units_to_loaded_cells()
@@ -317,6 +343,7 @@ class ModernMeshPainterWindow(MeshPainterWindow):
             self.cell_selection_mask = np.ones(len(self.cell_layer.dataframe), dtype=bool)
             self.visible_cell_indices = np.arange(len(self.cell_layer.dataframe))
         self._refresh_cell_labels()
+        self._force_scalar_bar_text_light()
 
     def _clear_cells(self) -> None:
         self._remove_cell_labels()
@@ -360,8 +387,15 @@ class ModernMeshPainterWindow(MeshPainterWindow):
                     render_points_as_spheres=True,
                     pickable=True,
                     name="cell_coordinates",
-                    scalar_bar_args={"title": color_col, "color": SCENE_TEXT_COLOR, "title_font_size": 12, "label_font_size": 10, "fmt": "%.3g"},
+                    scalar_bar_args={
+                        "title": color_col,
+                        "color": SCENE_TEXT_COLOR,
+                        "title_font_size": 12,
+                        "label_font_size": 10,
+                        "fmt": "%.3g",
+                    },
                 )
+                self._force_scalar_bar_text_light()
             else:
                 self.cell_layer.actor = None
         if self.cell_layer.actor is None:
@@ -383,6 +417,7 @@ class ModernMeshPainterWindow(MeshPainterWindow):
             pass
         self._refresh_cell_labels()
         self._style_3d_scene_text()
+        self._force_scalar_bar_text_light()
 
     def _remove_cell_labels(self) -> None:
         try:
