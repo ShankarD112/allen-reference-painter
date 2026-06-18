@@ -39,6 +39,8 @@ DEFAULT_PAINT_COLOR = "#ff3333"
 DEFAULT_MIRROR_COLOR = "#00d7ff"
 DEFAULT_CELL_COLOR = "#00d7ff"
 DEFAULT_REGION_COLOR = "#dddddd"
+CORONAL_PLANE_COLOR = "#ffd400"
+SAGITTAL_PLANE_COLOR = "#00d7ff"
 
 FALLBACK_REGION_COLORS = {
     "ENT": "#c8c5ff",
@@ -59,6 +61,9 @@ CELL_UNIT_OPTIONS = {
     "Voxel indices (index -> um using atlas resolution)": "voxel",
     "Auto detect": "auto",
 }
+
+NONE_LABEL = "(none)"
+SINGLE_COLOR_LABEL = "(single color)"
 
 
 def hex_to_rgb01(hex_color: str) -> tuple[float, float, float]:
@@ -108,13 +113,15 @@ class CellLayer:
     coordinate_mode: str
     color: str = DEFAULT_CELL_COLOR
     actor: object | None = None
+    label_column: str | None = None
+    color_column: str | None = None
 
 
 class MeshPainterWindow(QtWidgets.QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Allen Reference Painter")
-        self.resize(2100, 1150)
+        self.resize(2150, 1180)
 
         self.atlas = BrainGlobeAtlas(ATLAS_NAME)
         self.annotation = np.asarray(self.atlas.annotation)
@@ -133,6 +140,8 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         self.last_picked_point: np.ndarray | None = None
         self.last_mirror_point: np.ndarray | None = None
         self.reference_actor = None
+        self.coronal_plane_actor = None
+        self.sagittal_plane_actor = None
 
         self.structure_index = self._build_structure_index()
         self.all_region_labels = self._all_region_labels()
@@ -144,7 +153,7 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         self._refresh_controls()
         self._setup_picking()
         self._reset_slices_to_center()
-        self._update_slice_views()
+        self._on_slice_changed()
         self._update_status("Ready. Search/load a region or import cells. No region meshes are preloaded.")
 
     # ------------------------------------------------------------------
@@ -291,6 +300,16 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         self.reference_checkbox.stateChanged.connect(lambda _: self._refresh_scene())
         row2.addWidget(self.reference_checkbox)
 
+        self.show_coronal_plane_checkbox = QtWidgets.QCheckBox("3D coronal plane")
+        self.show_coronal_plane_checkbox.setChecked(False)
+        self.show_coronal_plane_checkbox.stateChanged.connect(lambda _: self._update_slice_planes())
+        row2.addWidget(self.show_coronal_plane_checkbox)
+
+        self.show_sagittal_plane_checkbox = QtWidgets.QCheckBox("3D sagittal plane")
+        self.show_sagittal_plane_checkbox.setChecked(False)
+        self.show_sagittal_plane_checkbox.stateChanged.connect(lambda _: self._update_slice_planes())
+        row2.addWidget(self.show_sagittal_plane_checkbox)
+
         self.show_painted_2d_checkbox = QtWidgets.QCheckBox("ROI on slices")
         self.show_painted_2d_checkbox.setChecked(True)
         self.show_painted_2d_checkbox.stateChanged.connect(lambda _: self._update_slice_views())
@@ -311,6 +330,7 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         self.brain_opacity_slider = self._compact_slider(row3, "Brain opacity", 0, 100, 8, self._refresh_scene)
         self.slice_thickness_slider = self._compact_slider(row3, "Slice thick um", 25, 1000, 250, self._update_slice_views)
         self.cell_size_slider = self._compact_slider(row3, "Cell size", 4, 60, 22, self._refresh_cell_actor)
+        self.plane_opacity_slider = self._compact_slider(row3, "Plane opacity", 1, 60, 12, self._update_slice_planes)
         top_layout.addLayout(row3)
 
         row4 = QtWidgets.QHBoxLayout()
@@ -346,6 +366,32 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         row4.addStretch(1)
         top_layout.addLayout(row4)
 
+        row5 = QtWidgets.QHBoxLayout()
+        row5.addWidget(QtWidgets.QLabel("Cell label/hover:"))
+        self.cell_label_combo = QtWidgets.QComboBox()
+        self.cell_label_combo.addItem(NONE_LABEL)
+        self.cell_label_combo.currentTextChanged.connect(self._cell_metadata_options_changed)
+        row5.addWidget(self.cell_label_combo)
+
+        row5.addWidget(QtWidgets.QLabel("Color cells by:"))
+        self.cell_colorby_combo = QtWidgets.QComboBox()
+        self.cell_colorby_combo.addItem(SINGLE_COLOR_LABEL)
+        self.cell_colorby_combo.currentTextChanged.connect(self._cell_metadata_options_changed)
+        row5.addWidget(self.cell_colorby_combo)
+
+        row5.addWidget(QtWidgets.QLabel("Camera:"))
+        for label, callback in [
+            ("Iso", self._view_iso),
+            ("XY", self._view_xy),
+            ("XZ", self._view_xz),
+            ("YZ", self._view_yz),
+        ]:
+            button = QtWidgets.QPushButton(label)
+            button.clicked.connect(callback)
+            row5.addWidget(button)
+        row5.addStretch(1)
+        top_layout.addLayout(row5)
+
         center_layout.addWidget(top_tools)
         self.plotter = QtInteractor(central)
         center_layout.addWidget(self.plotter.interactor, stretch=1)
@@ -362,7 +408,7 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         self.coronal_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.coronal_slider.setMinimum(0)
         self.coronal_slider.setMaximum(self.shape[0] - 1)
-        self.coronal_slider.valueChanged.connect(lambda _: self._update_slice_views())
+        self.coronal_slider.valueChanged.connect(lambda _: self._on_slice_changed())
         right_layout.addWidget(self.coronal_slider)
         self.coronal_fig = Figure(figsize=(5.3, 4.2), dpi=100)
         self.coronal_canvas = FigureCanvas(self.coronal_fig)
@@ -373,7 +419,7 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         self.sagittal_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.sagittal_slider.setMinimum(0)
         self.sagittal_slider.setMaximum(self.shape[2] - 1)
-        self.sagittal_slider.valueChanged.connect(lambda _: self._update_slice_views())
+        self.sagittal_slider.valueChanged.connect(lambda _: self._on_slice_changed())
         right_layout.addWidget(self.sagittal_slider)
         self.sagittal_fig = Figure(figsize=(5.3, 4.2), dpi=100)
         self.sagittal_canvas = FigureCanvas(self.sagittal_fig)
@@ -554,11 +600,12 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
                 region.painted_actor.GetProperty().SetOpacity(self.paint_opacity_slider.value() / 100)
         self._refresh_cell_actor(update_existing_only=True)
         self._update_pick_markers()
+        self._update_slice_planes()
         self.plotter.render()
         self._update_slice_views()
 
     # ------------------------------------------------------------------
-    # Slices
+    # Slices and plane indicators
     # ------------------------------------------------------------------
     def _um_to_index(self, value_um: float, axis: int) -> int:
         return int(np.clip(round(value_um / self.resolution_um[axis]), 0, self.shape[axis] - 1))
@@ -569,6 +616,51 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
     def _reset_slices_to_center(self) -> None:
         self.coronal_slider.setValue(self.shape[0] // 2)
         self.sagittal_slider.setValue(self.shape[2] // 2)
+
+    def _on_slice_changed(self) -> None:
+        self._update_slice_views()
+        self._update_slice_planes()
+
+    def _update_slice_planes(self) -> None:
+        if not hasattr(self, "plotter"):
+            return
+        for actor_name in ["coronal_slice_plane", "sagittal_slice_plane"]:
+            try:
+                self.plotter.remove_actor(actor_name)
+            except Exception:
+                pass
+        opacity = self.plane_opacity_slider.value() / 100 if hasattr(self, "plane_opacity_slider") else 0.12
+        if getattr(self, "show_coronal_plane_checkbox", None) is not None and self.show_coronal_plane_checkbox.isChecked():
+            x_um = self._index_to_um(self.coronal_slider.value(), 0)
+            plane = pv.Plane(
+                center=(x_um, self.size_um[1] / 2, self.size_um[2] / 2),
+                direction=(1, 0, 0),
+                i_size=self.size_um[2],
+                j_size=self.size_um[1],
+            )
+            self.plotter.add_mesh(
+                plane,
+                color=CORONAL_PLANE_COLOR,
+                opacity=opacity,
+                pickable=False,
+                name="coronal_slice_plane",
+            )
+        if getattr(self, "show_sagittal_plane_checkbox", None) is not None and self.show_sagittal_plane_checkbox.isChecked():
+            z_um = self._index_to_um(self.sagittal_slider.value(), 2)
+            plane = pv.Plane(
+                center=(self.size_um[0] / 2, self.size_um[1] / 2, z_um),
+                direction=(0, 0, 1),
+                i_size=self.size_um[0],
+                j_size=self.size_um[1],
+            )
+            self.plotter.add_mesh(
+                plane,
+                color=SAGITTAL_PLANE_COLOR,
+                opacity=opacity,
+                pickable=False,
+                name="sagittal_slice_plane",
+            )
+        self.plotter.render()
 
     def _annotation_rgb(self, annotation_slice: np.ndarray) -> np.ndarray:
         rgb = np.full((*annotation_slice.shape, 3), 245, dtype=np.uint8)
@@ -650,11 +742,32 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
                 ax.scatter([self.last_mirror_point[0]], [self.last_mirror_point[1]], s=65, c=self.mirror_color, edgecolors="black")
 
     # ------------------------------------------------------------------
-    # Painting
+    # Camera views
+    # ------------------------------------------------------------------
+    def _view_iso(self) -> None:
+        self.plotter.view_isometric()
+        self.plotter.reset_camera()
+
+    def _view_xy(self) -> None:
+        self.plotter.view_xy()
+        self.plotter.reset_camera()
+
+    def _view_xz(self) -> None:
+        self.plotter.view_xz()
+        self.plotter.reset_camera()
+
+    def _view_yz(self) -> None:
+        self.plotter.view_yz()
+        self.plotter.reset_camera()
+
+    # ------------------------------------------------------------------
+    # Painting and picking
     # ------------------------------------------------------------------
     def _setup_picking(self) -> None:
         self.cell_picker = vtk.vtkCellPicker()
         self.cell_picker.SetTolerance(0.0008)
+        self.point_picker = vtk.vtkPointPicker()
+        self.point_picker.SetTolerance(0.03)
         iren = self.plotter.iren.interactor
         iren.AddObserver("LeftButtonPressEvent", self._on_left_press)
         iren.AddObserver("LeftButtonReleaseEvent", self._on_left_release)
@@ -670,6 +783,40 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
     def _on_mouse_move(self, obj, event) -> None:
         if self.mouse_down and self.continuous_checkbox.isChecked():
             self._paint_from_mouse()
+        elif not self.mouse_down:
+            self._update_hovered_cell_status()
+
+    def _update_hovered_cell_status(self) -> None:
+        if self.cell_layer is None or self.cell_layer.actor is None:
+            return
+        try:
+            iren = self.plotter.iren.interactor
+            x, y = iren.GetEventPosition()
+            if not self.point_picker.Pick(x, y, 0, self.plotter.renderer):
+                return
+            point_id = int(self.point_picker.GetPointId())
+            if point_id < 0 or point_id >= self.cell_layer.xyz.shape[0]:
+                return
+            text = self._cell_status_text(point_id)
+            if text:
+                self._update_status(text)
+        except Exception:
+            return
+
+    def _cell_status_text(self, point_id: int) -> str:
+        if self.cell_layer is None:
+            return ""
+        row = self.cell_layer.dataframe.iloc[point_id]
+        label = ""
+        label_col = self.cell_label_combo.currentText() if hasattr(self, "cell_label_combo") else NONE_LABEL
+        if label_col != NONE_LABEL and label_col in self.cell_layer.dataframe.columns:
+            label = f"{label_col}: {row[label_col]} | "
+        color_col = self.cell_colorby_combo.currentText() if hasattr(self, "cell_colorby_combo") else SINGLE_COLOR_LABEL
+        color_txt = ""
+        if color_col != SINGLE_COLOR_LABEL and color_col in self.cell_layer.dataframe.columns:
+            color_txt = f" | {color_col}: {row[color_col]}"
+        x, y, z = self.cell_layer.xyz[point_id]
+        return f"Cell {point_id + 1} | {label}x/y/z um: {x:.1f}, {y:.1f}, {z:.1f}{color_txt}"
 
     def _paint_from_mouse(self) -> None:
         if not self.active_area or self.active_area not in self.regions:
@@ -763,10 +910,12 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         try:
             df = self._read_table(Path(path))
             x_col, y_col, z_col = self._find_xyz_columns(df)
+            good_rows = np.all(np.isfinite(df[[x_col, y_col, z_col]].astype(float).to_numpy()), axis=1)
+            df = df.loc[good_rows].reset_index(drop=True)
             original_xyz = df[[x_col, y_col, z_col]].astype(float).to_numpy()
-            original_xyz = original_xyz[np.all(np.isfinite(original_xyz), axis=1)]
             xyz, mode = self._convert_cell_coordinates(original_xyz)
             self.cell_layer = CellLayer(path=path, dataframe=df, original_xyz=original_xyz, xyz=xyz, coordinate_mode=mode)
+            self._populate_cell_metadata_controls(df)
             self._refresh_cell_actor(update_existing_only=False)
             self._center_view_on_cells()
             self.plotter.reset_camera()
@@ -774,6 +923,33 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
             self._refresh_scene()
         except Exception as exc:
             self._update_status(f"Could not load cells: {exc}")
+
+    def _populate_cell_metadata_controls(self, df: pd.DataFrame) -> None:
+        columns = [str(c) for c in df.columns]
+        numeric_columns = [str(c) for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+        for combo in [self.cell_label_combo, self.cell_colorby_combo]:
+            combo.blockSignals(True)
+            combo.clear()
+        self.cell_label_combo.addItem(NONE_LABEL)
+        self.cell_label_combo.addItems(columns)
+        self.cell_colorby_combo.addItem(SINGLE_COLOR_LABEL)
+        self.cell_colorby_combo.addItems(numeric_columns)
+        if "Name" in columns:
+            self.cell_label_combo.setCurrentText("Name")
+        elif "name" in columns:
+            self.cell_label_combo.setCurrentText("name")
+        for combo in [self.cell_label_combo, self.cell_colorby_combo]:
+            combo.blockSignals(False)
+
+    def _cell_metadata_options_changed(self) -> None:
+        if self.cell_layer is None:
+            return
+        label_col = self.cell_label_combo.currentText()
+        color_col = self.cell_colorby_combo.currentText()
+        self.cell_layer.label_column = None if label_col == NONE_LABEL else label_col
+        self.cell_layer.color_column = None if color_col == SINGLE_COLOR_LABEL else color_col
+        self._refresh_cell_actor(update_existing_only=False)
+        self._update_slice_views()
 
     def _selected_cell_unit_code(self) -> str:
         label = self.cell_units_combo.currentText()
@@ -828,12 +1004,33 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         elif update_existing_only:
             return
         pdata = pv.PolyData(self.cell_layer.xyz)
+        color_col = self.cell_colorby_combo.currentText() if hasattr(self, "cell_colorby_combo") else SINGLE_COLOR_LABEL
+        if color_col != SINGLE_COLOR_LABEL and color_col in self.cell_layer.dataframe.columns:
+            values = pd.to_numeric(self.cell_layer.dataframe[color_col], errors="coerce").to_numpy(dtype=float)
+            finite = np.isfinite(values)
+            if np.any(finite):
+                fill_value = float(np.nanmedian(values[finite]))
+                values = np.where(finite, values, fill_value)
+                pdata[color_col] = values
+                self.cell_layer.color_column = color_col
+                self.cell_layer.actor = self.plotter.add_mesh(
+                    pdata,
+                    scalars=color_col,
+                    cmap="viridis",
+                    point_size=self.cell_size_slider.value(),
+                    render_points_as_spheres=True,
+                    pickable=True,
+                    name="cell_coordinates",
+                    scalar_bar_args={"title": color_col},
+                )
+                return
+        self.cell_layer.color_column = None
         self.cell_layer.actor = self.plotter.add_mesh(
             pdata,
             color=self.cell_layer.color,
             point_size=self.cell_size_slider.value(),
             render_points_as_spheres=True,
-            pickable=False,
+            pickable=True,
             name="cell_coordinates",
         )
 
@@ -914,6 +1111,10 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         if self.cell_layer and self.cell_layer.actor is not None:
             self.plotter.remove_actor(self.cell_layer.actor)
         self.cell_layer = None
+        self.cell_label_combo.clear()
+        self.cell_label_combo.addItem(NONE_LABEL)
+        self.cell_colorby_combo.clear()
+        self.cell_colorby_combo.addItem(SINGLE_COLOR_LABEL)
         self._refresh_scene()
 
     def _save_active_roi(self) -> None:
@@ -995,6 +1196,8 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
             manifest["cells_file"] = str(cells_path)
             manifest["cell_coordinate_mode"] = self.cell_layer.coordinate_mode
             manifest["cell_units_dropdown"] = self.cell_units_combo.currentText()
+            manifest["cell_label_column"] = self.cell_label_combo.currentText()
+            manifest["cell_color_column"] = self.cell_colorby_combo.currentText()
         with open(scene_dir / "scene_manifest.json", "w") as f:
             json.dump(manifest, f, indent=2)
         self._update_status(f"Saved scene outputs: {scene_dir}")
