@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import numpy as np
 import pandas as pd
 import pyvista as pv
+from matplotlib import cm, colors as mcolors
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 from qtpy import QtCore, QtWidgets
 
-from .app import MeshPainterWindow, NONE_LABEL, SINGLE_COLOR_LABEL
+from .app import MeshPainterWindow, NONE_LABEL, OUTPUT_DIR, SINGLE_COLOR_LABEL
 
 SCENE_TEXT_COLOR = "#fff7ef"
 SCENE_BACKGROUND = "#0b1020"
@@ -46,6 +51,7 @@ class CellTableDialog(QtWidgets.QDialog):
         self.dataframe = dataframe.reset_index(drop=True)
         self.selection_mask = selection_mask.astype(bool).copy()
         layout = QtWidgets.QVBoxLayout(self)
+
         controls = QtWidgets.QHBoxLayout()
         self.search = QtWidgets.QLineEdit()
         self.search.setPlaceholderText("Filter visible rows by text, e.g. Aug012024IR3a")
@@ -58,10 +64,12 @@ class CellTableDialog(QtWidgets.QDialog):
         deselect_all.clicked.connect(lambda: self._set_all(False))
         controls.addWidget(deselect_all)
         layout.addLayout(controls)
+
         self.table = QtWidgets.QTableWidget()
         self.table.setAlternatingRowColors(True)
         self.table.setSortingEnabled(False)
         layout.addWidget(self.table, stretch=1)
+
         bottom = QtWidgets.QHBoxLayout()
         self.count_label = QtWidgets.QLabel("")
         bottom.addWidget(self.count_label)
@@ -124,7 +132,6 @@ class ModernMeshPainterWindow(MeshPainterWindow):
     def __init__(self) -> None:
         self.cell_selection_mask = None
         self.visible_cell_indices = None
-        self.scalar_bar_card_actor = None
         super().__init__()
         self.setWindowTitle("Allen Brain Painter")
         self.setStyleSheet(SUNSET_STYLE)
@@ -133,7 +140,9 @@ class ModernMeshPainterWindow(MeshPainterWindow):
         self._install_region_search_helpers()
         self._add_view_cell_table_button()
         self._add_2d_cell_view_controls()
-        self._update_status("Modern sunset theme active. 2D cell views can now use heatmap colors.")
+        self._add_screenshot_controls()
+        self._update_cell_colorbar()
+        self._update_status("Modern sunset theme active. Heat legend moved to the 2D side panel.")
 
     def _modernize_existing_widgets(self) -> None:
         self.setMinimumSize(1450, 850)
@@ -147,6 +156,9 @@ class ModernMeshPainterWindow(MeshPainterWindow):
         for widget in [self.region_search, self.region_picker, self.active_combo, self.cell_units_combo, self.cell_label_combo, self.cell_colorby_combo]:
             widget.setMinimumHeight(32)
             widget.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
+
+    def _right_panel_layout(self):
+        return self.coronal_label.parentWidget().layout()
 
     def _add_view_cell_table_button(self) -> None:
         self.view_cell_table_button = QtWidgets.QPushButton("View cell table")
@@ -181,7 +193,7 @@ class ModernMeshPainterWindow(MeshPainterWindow):
         self.cell_heatmap_2d_checkbox.setChecked(True)
         self.cell_heatmap_2d_checkbox.stateChanged.connect(lambda _: self._update_slice_views())
         try:
-            layout = self.coronal_label.parentWidget().layout()
+            layout = self._right_panel_layout()
             cor_idx = layout.indexOf(self.coronal_slider)
             sag_idx = layout.indexOf(self.sagittal_slider)
             row_a = QtWidgets.QHBoxLayout()
@@ -193,10 +205,43 @@ class ModernMeshPainterWindow(MeshPainterWindow):
             row_b.addWidget(self.sagittal_cells_2d_checkbox)
             row_b.addStretch(1)
             layout.insertLayout(sag_idx + 2, row_b)
+
+            self.cell_colorbar_title = QtWidgets.QLabel("Cell heatmap legend")
+            self.cell_colorbar_fig = Figure(figsize=(4.8, 0.9), dpi=100)
+            self.cell_colorbar_fig.patch.set_facecolor(SCENE_BACKGROUND)
+            self.cell_colorbar_canvas = FigureCanvas(self.cell_colorbar_fig)
+            self.cell_colorbar_canvas.setFixedHeight(88)
+            layout.addWidget(self.cell_colorbar_title)
+            layout.addWidget(self.cell_colorbar_canvas)
         except Exception:
             self.statusBar().addPermanentWidget(self.coronal_cells_2d_checkbox)
             self.statusBar().addPermanentWidget(self.sagittal_cells_2d_checkbox)
             self.statusBar().addPermanentWidget(self.cell_heatmap_2d_checkbox)
+
+    def _add_screenshot_controls(self) -> None:
+        try:
+            layout = self._right_panel_layout()
+            title = QtWidgets.QLabel("Save screenshots")
+            row1 = QtWidgets.QHBoxLayout()
+            row2 = QtWidgets.QHBoxLayout()
+            buttons = [
+                ("3D scene", self._save_3d_screenshot),
+                ("Coronal", self._save_coronal_screenshot),
+                ("Sagittal", self._save_sagittal_screenshot),
+                ("Both 2D", self._save_both_2d_screenshots),
+                ("All views", self._save_all_view_screenshots),
+            ]
+            for i, (text, callback) in enumerate(buttons):
+                button = QtWidgets.QPushButton(text)
+                button.clicked.connect(callback)
+                (row1 if i < 3 else row2).addWidget(button)
+            row1.addStretch(1)
+            row2.addStretch(1)
+            layout.addWidget(title)
+            layout.addLayout(row1)
+            layout.addLayout(row2)
+        except Exception:
+            pass
 
     def _style_3d_scene_text(self) -> None:
         try:
@@ -208,74 +253,24 @@ class ModernMeshPainterWindow(MeshPainterWindow):
             self.plotter.add_axes(line_width=2, color=SCENE_TEXT_COLOR)
         except Exception:
             pass
-        self._force_scalar_bar_text_light()
+        self._remove_3d_scalar_bars()
         try:
             self.plotter.render()
         except Exception:
             pass
 
-    def _force_scalar_bar_text_light(self) -> None:
+    def _remove_3d_scalar_bars(self) -> None:
         try:
             scalar_bars = getattr(self.plotter, "scalar_bars", {})
-            actors = list(scalar_bars.values()) if hasattr(scalar_bars, "values") else []
-            if actors:
-                self._add_scalar_bar_card()
-            for actor in actors:
-                for getter in ["GetTitleTextProperty", "GetLabelTextProperty", "GetAnnotationTextProperty"]:
-                    if hasattr(actor, getter):
-                        prop = getattr(actor, getter)()
-                        prop.SetColor(1.0, 0.97, 0.94)
-                        prop.SetOpacity(1.0)
-                        prop.BoldOn()
-                        try:
-                            prop.SetFontSize(14)
-                        except Exception:
-                            pass
-                if hasattr(actor, "SetOrientationToHorizontal"):
-                    actor.SetOrientationToHorizontal()
-                if hasattr(actor, "SetPosition"):
-                    actor.SetPosition(0.56, 0.075)
-                if hasattr(actor, "SetWidth"):
-                    actor.SetWidth(0.37)
-                if hasattr(actor, "SetHeight"):
-                    actor.SetHeight(0.07)
-                if hasattr(actor, "SetMaximumNumberOfColors"):
-                    actor.SetMaximumNumberOfColors(96)
-                if hasattr(actor, "Modified"):
-                    actor.Modified()
+            for name in list(scalar_bars.keys()):
+                try:
+                    self.plotter.remove_scalar_bar(name)
+                except Exception:
+                    pass
         except Exception:
             pass
-
-    def _add_scalar_bar_card(self) -> None:
         try:
             self.plotter.remove_actor("heat_legend_card")
-        except Exception:
-            pass
-        try:
-            import vtk
-            points = vtk.vtkPoints()
-            for p in [(0.535, 0.045, 0), (0.955, 0.045, 0), (0.955, 0.17, 0), (0.535, 0.17, 0)]:
-                points.InsertNextPoint(*p)
-            polygon = vtk.vtkPolygon()
-            polygon.GetPointIds().SetNumberOfIds(4)
-            for i in range(4):
-                polygon.GetPointIds().SetId(i, i)
-            cells = vtk.vtkCellArray()
-            cells.InsertNextCell(polygon)
-            poly = vtk.vtkPolyData()
-            poly.SetPoints(points)
-            poly.SetPolys(cells)
-            mapper = vtk.vtkPolyDataMapper2D()
-            coord = vtk.vtkCoordinate()
-            coord.SetCoordinateSystemToNormalizedViewport()
-            mapper.SetTransformCoordinate(coord)
-            mapper.SetInputData(poly)
-            actor = vtk.vtkActor2D()
-            actor.SetMapper(mapper)
-            actor.GetProperty().SetColor(0.035, 0.045, 0.085)
-            actor.GetProperty().SetOpacity(0.72)
-            self.plotter.renderer.AddActor2D(actor)
-            self.scalar_bar_card_actor = actor
         except Exception:
             pass
 
@@ -336,6 +331,19 @@ class ModernMeshPainterWindow(MeshPainterWindow):
             else:
                 ax.scatter([self.last_mirror_point[0]], [self.last_mirror_point[1]], s=65, c=self.mirror_color, edgecolors="black")
 
+    def _cell_color_values(self, idx: np.ndarray) -> tuple[str | None, np.ndarray | None, float | None, float | None]:
+        if self.cell_layer is None:
+            return None, None, None, None
+        color_col = self.cell_colorby_combo.currentText() if hasattr(self, "cell_colorby_combo") else SINGLE_COLOR_LABEL
+        if color_col == SINGLE_COLOR_LABEL or color_col not in self.cell_layer.dataframe.columns:
+            return None, None, None, None
+        vals_all = pd.to_numeric(self.cell_layer.dataframe.iloc[idx][color_col], errors="coerce").to_numpy(dtype=float)
+        finite = np.isfinite(vals_all)
+        if not np.any(finite):
+            return None, None, None, None
+        vals_all = np.where(finite, vals_all, float(np.nanmedian(vals_all[finite])))
+        return color_col, vals_all, float(np.min(vals_all)), float(np.max(vals_all))
+
     def _overlay_cells_on_2d(self, ax, plane: str, plane_um: float, half_thick: float) -> None:
         if not self.show_cells_2d_checkbox.isChecked() or self.cell_layer is None:
             return
@@ -355,16 +363,39 @@ class ModernMeshPainterWindow(MeshPainterWindow):
             xplot, yplot = pts[mask, 0], pts[mask, 1]
         if not np.any(mask):
             return
-        color_col = self.cell_colorby_combo.currentText() if hasattr(self, "cell_colorby_combo") else SINGLE_COLOR_LABEL
         use_heat = getattr(self, "cell_heatmap_2d_checkbox", None) is None or self.cell_heatmap_2d_checkbox.isChecked()
-        if use_heat and color_col != SINGLE_COLOR_LABEL and color_col in self.cell_layer.dataframe.columns:
-            vals_all = pd.to_numeric(self.cell_layer.dataframe.iloc[idx][color_col], errors="coerce").to_numpy(dtype=float)
-            finite = np.isfinite(vals_all)
-            if np.any(finite):
-                vals_all = np.where(finite, vals_all, float(np.nanmedian(vals_all[finite])))
-                ax.scatter(xplot, yplot, c=vals_all[mask], cmap="inferno", vmin=float(np.min(vals_all)), vmax=float(np.max(vals_all)), s=34, edgecolors="#06101f", linewidths=0.45)
-                return
+        color_col, vals_all, vmin, vmax = self._cell_color_values(idx)
+        if use_heat and vals_all is not None:
+            ax.scatter(xplot, yplot, c=vals_all[mask], cmap="inferno", vmin=vmin, vmax=vmax, s=34, edgecolors="#06101f", linewidths=0.45)
+            return
         ax.scatter(xplot, yplot, s=30, c=self.cell_layer.color, edgecolors="#06101f", linewidths=0.45)
+
+    def _update_cell_colorbar(self) -> None:
+        if not hasattr(self, "cell_colorbar_fig"):
+            return
+        self.cell_colorbar_fig.clear()
+        self.cell_colorbar_fig.patch.set_facecolor(SCENE_BACKGROUND)
+        ax = self.cell_colorbar_fig.add_subplot(111)
+        ax.set_facecolor(SCENE_BACKGROUND)
+        ax.axis("off")
+        idx = self._selected_cell_indices() if self.cell_layer is not None else np.array([], dtype=int)
+        color_col, vals, vmin, vmax = self._cell_color_values(idx) if len(idx) else (None, None, None, None)
+        use_heat = getattr(self, "cell_heatmap_2d_checkbox", None) is None or self.cell_heatmap_2d_checkbox.isChecked()
+        if color_col is not None and vals is not None and use_heat:
+            norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+            sm = cm.ScalarMappable(norm=norm, cmap="inferno")
+            sm.set_array([])
+            cax = self.cell_colorbar_fig.add_axes([0.08, 0.38, 0.84, 0.28])
+            cbar = self.cell_colorbar_fig.colorbar(sm, cax=cax, orientation="horizontal")
+            cbar.set_label(color_col, color=SCENE_TEXT_COLOR, labelpad=4)
+            cbar.ax.tick_params(colors=SCENE_TEXT_COLOR, labelsize=8)
+            for spine in cbar.ax.spines.values():
+                spine.set_edgecolor("#7c8aa5")
+            self.cell_colorbar_title.setText(f"Cell heatmap legend: {color_col}")
+        else:
+            ax.text(0.5, 0.5, "Cell heatmap legend: off / no numeric color column", ha="center", va="center", color=SCENE_TEXT_COLOR, fontsize=9)
+            self.cell_colorbar_title.setText("Cell heatmap legend")
+        self.cell_colorbar_canvas.draw_idle()
 
     def _install_region_search_helpers(self) -> None:
         completer = QtWidgets.QCompleter(self.all_region_labels, self)
@@ -412,9 +443,6 @@ class ModernMeshPainterWindow(MeshPainterWindow):
             self.plotter.reset_camera()
             self._update_status(f"Loaded {acronym}.")
 
-    def _compact_scalar_bar_args(self, title: str) -> dict:
-        return {"title": title, "color": SCENE_TEXT_COLOR, "title_font_size": 14, "label_font_size": 12, "fmt": "%.3g", "n_labels": 4, "vertical": False, "position_x": 0.56, "position_y": 0.075, "width": 0.37, "height": 0.07}
-
     def _load_cells_dialog(self) -> None:
         super()._load_cells_dialog()
         if self.cell_layer is not None:
@@ -422,7 +450,7 @@ class ModernMeshPainterWindow(MeshPainterWindow):
             self.visible_cell_indices = np.arange(len(self.cell_layer.dataframe))
             self.view_cell_table_button.setEnabled(True)
             self._refresh_cell_actor(update_existing_only=False)
-            self._force_scalar_bar_text_light()
+            self._update_cell_colorbar()
 
     def _show_cell_table_dialog(self) -> None:
         if self.cell_layer is None:
@@ -436,6 +464,7 @@ class ModernMeshPainterWindow(MeshPainterWindow):
             self.cell_selection_mask = dialog.selection_mask.copy()
             self._refresh_cell_actor(update_existing_only=False)
             self._update_slice_views()
+            self._update_cell_colorbar()
             self._update_status(f"Cell selection applied: {int(self.cell_selection_mask.sum())} of {len(self.cell_selection_mask)} cells visible.")
 
     def _selected_cell_indices(self) -> np.ndarray:
@@ -449,8 +478,8 @@ class ModernMeshPainterWindow(MeshPainterWindow):
     def _cell_metadata_options_changed(self) -> None:
         super()._cell_metadata_options_changed()
         self._refresh_cell_labels()
-        self._force_scalar_bar_text_light()
         self._update_slice_views()
+        self._update_cell_colorbar()
 
     def _apply_cell_units_to_loaded_cells(self) -> None:
         super()._apply_cell_units_to_loaded_cells()
@@ -458,8 +487,8 @@ class ModernMeshPainterWindow(MeshPainterWindow):
             self.cell_selection_mask = np.ones(len(self.cell_layer.dataframe), dtype=bool)
             self.visible_cell_indices = np.arange(len(self.cell_layer.dataframe))
         self._refresh_cell_labels()
-        self._force_scalar_bar_text_light()
         self._update_slice_views()
+        self._update_cell_colorbar()
 
     def _clear_cells(self) -> None:
         self._remove_cell_labels()
@@ -467,11 +496,9 @@ class ModernMeshPainterWindow(MeshPainterWindow):
         self.visible_cell_indices = None
         if hasattr(self, "view_cell_table_button"):
             self.view_cell_table_button.setEnabled(False)
-        try:
-            self.plotter.remove_actor("heat_legend_card")
-        except Exception:
-            pass
         super()._clear_cells()
+        self._remove_3d_scalar_bars()
+        self._update_cell_colorbar()
 
     def _refresh_cell_actor(self, update_existing_only: bool = False) -> None:
         if self.cell_layer is None:
@@ -486,6 +513,7 @@ class ModernMeshPainterWindow(MeshPainterWindow):
         if len(idx) == 0:
             self._remove_cell_labels()
             self._style_3d_scene_text()
+            self._update_cell_colorbar()
             return
         pdata = pv.PolyData(self.cell_layer.xyz[idx])
         df_vis = self.cell_layer.dataframe.iloc[idx].reset_index(drop=True)
@@ -497,8 +525,16 @@ class ModernMeshPainterWindow(MeshPainterWindow):
                 vals = np.where(finite, vals, float(np.nanmedian(vals[finite])))
                 pdata[color_col] = vals
                 self.cell_layer.color_column = color_col
-                self.cell_layer.actor = self.plotter.add_mesh(pdata, scalars=color_col, cmap="inferno", point_size=self.cell_size_slider.value(), render_points_as_spheres=True, pickable=True, name="cell_coordinates", scalar_bar_args=self._compact_scalar_bar_args(color_col))
-                self._force_scalar_bar_text_light()
+                self.cell_layer.actor = self.plotter.add_mesh(
+                    pdata,
+                    scalars=color_col,
+                    cmap="inferno",
+                    point_size=self.cell_size_slider.value(),
+                    render_points_as_spheres=True,
+                    pickable=True,
+                    name="cell_coordinates",
+                    show_scalar_bar=False,
+                )
             else:
                 self.cell_layer.actor = None
         if self.cell_layer.actor is None:
@@ -511,10 +547,11 @@ class ModernMeshPainterWindow(MeshPainterWindow):
                 self.point_picker.PickFromListOn()
         except Exception:
             pass
+        self._remove_3d_scalar_bars()
         self._refresh_cell_labels()
         self._style_3d_scene_text()
-        self._force_scalar_bar_text_light()
         self._update_slice_views()
+        self._update_cell_colorbar()
 
     def _remove_cell_labels(self) -> None:
         try:
@@ -595,6 +632,39 @@ class ModernMeshPainterWindow(MeshPainterWindow):
                 self._update_status("No nearby visible cell found at click position.")
         except Exception:
             return
+
+    def _screenshot_path(self, stem: str) -> str:
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        return str(OUTPUT_DIR / f"{stem}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+
+    def _save_3d_screenshot(self) -> str:
+        path = self._screenshot_path("3D_scene")
+        self.plotter.screenshot(path)
+        self._update_status(f"Saved 3D screenshot: {path}")
+        return path
+
+    def _save_coronal_screenshot(self) -> str:
+        path = self._screenshot_path("coronal_2D")
+        self.coronal_fig.savefig(path, dpi=220, facecolor=SCENE_BACKGROUND, bbox_inches="tight")
+        self._update_status(f"Saved coronal screenshot: {path}")
+        return path
+
+    def _save_sagittal_screenshot(self) -> str:
+        path = self._screenshot_path("sagittal_2D")
+        self.sagittal_fig.savefig(path, dpi=220, facecolor=SCENE_BACKGROUND, bbox_inches="tight")
+        self._update_status(f"Saved sagittal screenshot: {path}")
+        return path
+
+    def _save_both_2d_screenshots(self) -> tuple[str, str]:
+        c = self._save_coronal_screenshot()
+        s = self._save_sagittal_screenshot()
+        self._update_status(f"Saved both 2D screenshots: {c} and {s}")
+        return c, s
+
+    def _save_all_view_screenshots(self) -> None:
+        p3 = self._save_3d_screenshot()
+        c, s = self._save_both_2d_screenshots()
+        self._update_status(f"Saved all views: {p3}, {c}, {s}")
 
 
 def main() -> None:
