@@ -19,9 +19,9 @@ def _tuple3(value) -> tuple[float, float, float]:
 def _camera_snapshot(window: Any) -> dict[str, Any] | None:
     """Return a full copy of the current VTK/PyVista camera state.
 
-    `plotter.camera_position` is not always enough to preserve zoom.  Some
-    actor updates can change clipping range, parallel scale, or camera distance
-    while leaving the view direction mostly intact.  We therefore snapshot the
+    `plotter.camera_position` is not always enough to preserve zoom. Some actor
+    updates can change clipping range, parallel scale, or camera distance while
+    leaving the view direction mostly intact. We therefore snapshot the
     underlying VTK camera parameters directly.
     """
 
@@ -40,7 +40,6 @@ def _camera_snapshot(window: Any) -> dict[str, Any] | None:
             "view_angle": float(camera.GetViewAngle()),
             "parallel_scale": float(camera.GetParallelScale()),
             "parallel_projection": bool(camera.GetParallelProjection()),
-            "distance": float(camera.GetDistance()),
         }
     except Exception:
         return None
@@ -80,11 +79,53 @@ def _restore_camera(window: Any, state: dict[str, Any] | None) -> None:
         return
 
 
+def _patch_plotter_add_mesh(window: Any) -> None:
+    """Make runtime PyVista mesh additions preserve the current camera by default.
+
+    Many paint updates create temporary actors with ``plotter.add_mesh``. In
+    PyVista, ``add_mesh`` can reset camera bounds unless ``reset_camera=False``
+    is passed. This instance-level patch adds that default without touching
+    explicit calls that already pass their own ``reset_camera`` value.
+    """
+
+    try:
+        plotter = getattr(window, "plotter", None)
+        if plotter is None or getattr(plotter, "_arp_add_mesh_patched", False):
+            return
+        original_add_mesh = plotter.add_mesh
+
+        @wraps(original_add_mesh)
+        def add_mesh_no_camera_reset(*args, **kwargs):
+            kwargs.setdefault("reset_camera", False)
+            camera_state = _camera_snapshot(window)
+            result = original_add_mesh(*args, **kwargs)
+            _restore_camera(window, camera_state)
+            return result
+
+        plotter.add_mesh = add_mesh_no_camera_reset
+        plotter._arp_add_mesh_patched = True
+    except Exception:
+        return
+
+
+def _wrap_init(method: Callable) -> Callable:
+    """Patch the PyVista plotter immediately after the window is created."""
+
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        result = method(self, *args, **kwargs)
+        _patch_plotter_add_mesh(self)
+        return result
+
+    return wrapped
+
+
 def _wrap_preserve_camera(method: Callable) -> Callable:
     """Wrap one window method so actor updates do not reset the 3D camera."""
 
     @wraps(method)
     def wrapped(self, *args, **kwargs):
+        _patch_plotter_add_mesh(self)
         camera_state = _camera_snapshot(self)
         result = method(self, *args, **kwargs)
         _restore_camera(self, camera_state)
@@ -105,6 +146,10 @@ def apply_camera_preserve_patch(window_cls: type) -> None:
 
     if getattr(window_cls, "_camera_preserve_patch_applied", False):
         return
+
+    init_method = getattr(window_cls, "__init__", None)
+    if init_method is not None:
+        setattr(window_cls, "__init__", _wrap_init(init_method))
 
     method_names = [
         "_paint_from_mouse",
