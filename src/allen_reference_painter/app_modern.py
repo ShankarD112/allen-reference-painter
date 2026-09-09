@@ -533,13 +533,14 @@ class ModernMeshPainterWindow(MeshPainterWindow):
                     render_points_as_spheres=True,
                     pickable=True,
                     name="cell_coordinates",
+                    reset_camera=False, render=False,
                     show_scalar_bar=False,
                 )
             else:
                 self.cell_layer.actor = None
         if self.cell_layer.actor is None:
             self.cell_layer.color_column = None
-            self.cell_layer.actor = self.plotter.add_mesh(pdata, color=self.cell_layer.color, point_size=self.cell_size_slider.value(), render_points_as_spheres=True, pickable=True, name="cell_coordinates")
+            self.cell_layer.actor = self.plotter.add_mesh(pdata, color=self.cell_layer.color, point_size=self.cell_size_slider.value(), render_points_as_spheres=True, pickable=True, name="cell_coordinates", reset_camera=False, render=False)
         try:
             if self.cell_layer.actor is not None and hasattr(self, "point_picker"):
                 self.point_picker.InitializePickList()
@@ -573,7 +574,7 @@ class ModernMeshPainterWindow(MeshPainterWindow):
         xyz = self.cell_layer.xyz[idx]
         labels = self.cell_layer.dataframe.iloc[idx][label_col].astype(str).tolist()
         try:
-            self.cell_label_actor = self.plotter.add_point_labels(xyz, labels, name="cell_name_labels", font_size=10, text_color=SCENE_TEXT_COLOR, point_color="#ff9f1c", point_size=3, shape_color="#111827", shape_opacity=0.55, always_visible=True, pickable=False, render_points_as_spheres=True)
+            self.cell_label_actor = self.plotter.add_point_labels(xyz, labels, name="cell_name_labels", font_size=10, text_color=SCENE_TEXT_COLOR, point_color="#ff9f1c", point_size=3, shape_color="#111827", shape_opacity=0.55, always_visible=True, pickable=False, render_points_as_spheres=True, reset_camera=False, render=False)
         except Exception:
             self.cell_label_actor = None
 

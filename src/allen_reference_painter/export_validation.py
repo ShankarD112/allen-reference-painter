@@ -90,8 +90,8 @@ def validate_metadata(metadata_path: str | Path) -> ValidationResult:
                 values = np.asarray(metadata[key], dtype=float)
                 if values.shape != (3,):
                     messages.append(f"{key} should contain exactly 3 values")
-                if np.any(values <= 0):
-                    messages.append(f"{key} should contain positive values")
+                if not np.isfinite(values).all() or np.any(values <= 0):
+                    messages.append(f"{key} should contain finite positive values")
             except Exception as exc:  # noqa: BLE001
                 messages.append(f"Could not parse {key}: {exc}")
 
@@ -218,10 +218,16 @@ def validate_active_roi_export(
 
     results = [validate_metadata(metadata_path)]
     if face_csv:
+        face_csv = Path(face_csv)
+        if not face_csv.is_absolute():
+            face_csv = metadata_path.parent / face_csv
         results.append(validate_face_table(face_csv, metadata_path))
     else:
         results.append(ValidationResult(False, str(metadata_path), ("No face_ids_file provided",)))
     if mesh_path:
+        mesh_path = Path(mesh_path)
+        if not mesh_path.is_absolute():
+            mesh_path = metadata_path.parent / mesh_path
         results.append(validate_mesh(mesh_path))
     else:
         results.append(ValidationResult(False, str(metadata_path), ("No ply_file provided",)))

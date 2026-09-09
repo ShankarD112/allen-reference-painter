@@ -1,0 +1,56 @@
+# Desktop rebuild development log
+
+## 2026-09-09 — Baseline and authorization
+
+Request: remake the existing product into an intuitive, responsive desktop app; retain product development protocols; log the work; deliver a GitHub-downloadable Windows executable. Existing repository may be used. No merge or release has been performed.
+
+Baseline: `984ca50` on `main`. Working branch: `feat/desktop-workflow-rebuild`.
+Read the README, modular refactor plan, roadmap, coordinate-validation protocol and all relevant application/patch modules. No AGENTS.md, existing test suite, CONTRIBUTING guide, or CI workflows were present in the checked-out tree. Existing merge gate requires launch, regions, painting, cells/selection, 2D/3D updates, screenshots, and coordinate export validation.
+
+## Audit findings
+
+- Atlas loading/annotation materialization happens in the window constructor before the UI opens.
+- Every paint sample scans all region face centroids with a full NumPy norm.
+- Each paint sample builds a processed Trimesh and replaces its overlay actor.
+- General scene refresh reconstructs imported cell geometry, labels, scalar styling and slice views.
+- Slice updates clear Matplotlib figures, create axes and recompute layout each time.
+- Markers and slice planes are removed and recreated on updates.
+- The cell popup creates one table item for every cell/metadata value and repopulates on filter changes.
+- Auto unit conversion tests voxel-size bounds before millimeter bounds, so typical millimeter values are classified as voxels. Units are fundamentally ambiguous from values alone.
+- The console script launches the old prototype rather than the documented main entry point.
+- Outputs are written relative to installed source, unsuitable for an executable installed in a protected directory.
+- Export manifests use absolute paths and omit selected-cell state; moving a folder loses path references.
+- Camera fixes are layered runtime wrappers which add additional render calls.
+
+## Architecture decision
+
+Keep Python, Qt/PySide6, VTK/PyVista, BrainGlobe and the original atlas-coordinate contracts. This preserves the specialized 3D/atlas functionality and follows the existing incremental migration protocol. Replace the workspace layout and performance-sensitive behavior in dedicated modules. Keep legacy launchers available for comparison. No web server, browser runtime, or cloud upload of scientific data is introduced.
+
+The new coordinator reuses legacy scientific/metadata behavior by inheritance. This is an incremental rebuild, not a claim that all legacy code has been eliminated. Future removal of the legacy classes must follow the same feature gate.
+
+## Implemented work
+
+- New four-stage workspace, scalable splitter layout, quick guide, keyboard shortcuts, explicit Navigate/Paint/Erase tools, and offline synthetic demo.
+- Atlas/reference initialization, region mesh loading, cell parsing/conversion and export file writing use worker threads; Qt and rendered VTK objects remain on the GUI thread.
+- KD-tree brush queries preserve the original radius and nearest-face fallback, without remeshing atlas geometry.
+- Persistent paint actor/mapper, markers and slice planes; paint update leaves cell geometry untouched.
+- Slice update coalescing, persistent axes/images and a bounded 24-image annotation cache. Scatter overlays still update when required.
+- Virtual cell table, literal filtering, selection preserving unit changes, matched numeric 2D/3D colors.
+- Undo/redo (last 100 strokes), undoable clear, no painting while navigating, and active-mesh-only picking.
+- Explicit unit confirmation instead of silently guessing. Malformed/nonfinite input rows fail visibly rather than being dropped. Out-of-bounds imports/conversions request an in-app decision.
+- Portable atomic export directories with relative paths, ROI face IDs/centroids, atlas origin/units/axes, all imported cell coordinates and per-cell selection.
+- User-writable outputs and rotating local logs (5 MB × current plus four backups). Logs cover sessions, jobs/timings, status, named controls and stroke counts. Imported row content and per-hover cell metadata are not logged. Logs are diagnostics, not a replayable scientific provenance database.
+- One entry point for installed source and executable; Windows PyInstaller folder packaging plus OS-specific CI and frozen-binary smoke gate.
+
+## Validation / limitations at implementation checkpoint
+
+- Local core suite: 6 tests passed (brush equivalence including nearest fallback, explicit/anisotropic units, ambiguous auto, invalid coordinates, alias import).
+- Synthetic 300,000-face / 100-query benchmark recorded in `BRUSH_BENCHMARK.json`; verifies identical selected face IDs. This measures brush lookup only, not complete paint latency or end-to-end FPS.
+- All Python sources compile.
+- Local Qt/PyVista/BrainGlobe/Trimesh packages are absent. A dependency install did not complete because network approval was cancelled by the execution environment; an offline install found no cached packages. GUI/export tests have not yet run locally.
+- Added Linux/Windows tests and synthetic GUI smoke, plus Windows executable build and frozen smoke. Results must be recorded below after CI runs; adding workflow files alone is not evidence of a working executable.
+- Real Allen download/cache/offline behavior, large real cell files, interactive graphics performance and a clean Windows machine remain manual release gates.
+- Atlas download has indeterminate progress and cannot safely be interrupted in-process. The UI stays visible and asks users to wait before closing a running job. Offline demo is available from the welcome screen.
+- Full native objects and export snapshots still use memory proportional to loaded data. Cell-table filter text is precomputed; no claim of unlimited-size datasets.
+- No scene reload was present in the baseline; exports remain analysis outputs, not editable project saves. This is stated in the guide and on close.
+- Executables are unsigned development artifacts until the release checklist is satisfied. No release is published automatically.

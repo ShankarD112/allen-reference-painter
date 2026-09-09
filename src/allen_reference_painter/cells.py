@@ -43,3 +43,39 @@ def find_column(columns: list[str], aliases: list[str]) -> str | None:
         if alias.lower() in lookup:
             return lookup[alias.lower()]
     return None
+
+
+def convert_coordinates(xyz, mode, resolution, shape):
+    """Convert explicit units. Auto is a suggestion, never accepted silently."""
+    xyz = np.asarray(xyz, dtype=float)
+    if xyz.ndim != 2 or xyz.shape[1] != 3 or not np.isfinite(xyz).all():
+        raise ValueError('Coordinates must be finite numbers in three columns.')
+    if mode == 'auto':
+        raise ValueError('Choose microns, millimeters, or voxel indices explicitly; small values are ambiguous.')
+    factors = {'um': np.ones(3), 'mm': np.full(3, 1000.), 'voxel': np.asarray(resolution, dtype=float)}
+    if mode not in factors:
+        raise ValueError(f'Unknown coordinate unit: {mode}')
+    return xyz * factors[mode], {'um': 'microns', 'mm': 'millimeters converted to microns x1000', 'voxel': 'voxel indices converted to microns'}[mode]
+
+
+def read_cells(path):
+    """Read coordinates without silently dropping invalid scientific observations."""
+    from pathlib import Path
+    path = Path(path)
+    if path.suffix.lower() in {'.xls', '.xlsx'}:
+        df = pd.read_excel(path)
+    elif path.suffix.lower() == '.tsv':
+        df = pd.read_csv(path, sep='\t')
+    else:
+        df = pd.read_csv(path, sep=None, engine='python')
+    df.columns = [str(c).strip() for c in df.columns]
+    cols = [find_column(list(df.columns), aliases) for aliases in (X_ALIASES, Y_ALIASES, Z_ALIASES)]
+    if any(c is None for c in cols):
+        raise ValueError('Use coordinate columns x/y/z or AP/DV/ML (also accepts x_um/y_um/z_um).')
+    xyz = df[cols].apply(pd.to_numeric, errors='coerce').to_numpy(dtype=float)
+    bad = np.flatnonzero(~np.isfinite(xyz).all(axis=1))
+    if len(bad):
+        raise ValueError(f'{len(bad)} rows have missing or invalid coordinates. First data rows: {(bad[:8] + 1).tolist()}. Correct the file and retry.')
+    if not len(df):
+        raise ValueError('The cell table contains no data rows.')
+    return df.reset_index(drop=True), xyz
