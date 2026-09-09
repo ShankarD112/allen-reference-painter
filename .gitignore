@@ -18,3 +18,4 @@ frozen-smoke/
 test-data/
 package-test-data/
 .pytest_cache/
+real-atlas-smoke/

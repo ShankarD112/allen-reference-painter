@@ -1,4 +1,4 @@
-"""Offline functional smoke gate for both source and frozen desktop builds."""
+"""Functional smoke gate; uses synthetic anatomy unless explicitly run on Allen."""
 from pathlib import Path
 import json
 import tempfile
@@ -17,11 +17,12 @@ def exercise_window(window, destination=None):
     folder = Path(destination or tempfile.mkdtemp(prefix='allen-painter-smoke-'))
     folder.mkdir(parents=True,exist_ok=True)
     app = QtWidgets.QApplication.instance()
-    mesh = trimesh.load(window.atlas.meshfile_from_structure('DEMO'),force='mesh')
+    area = 'DEMO' if window._is_demo else 'ENT'
+    mesh = trimesh.load(window.atlas.meshfile_from_structure(area),force='mesh')
     centers = np.asarray(mesh.triangles_center)
-    window._region_loaded(('DEMO',mesh,centers,FaceIndex(centers)))
+    window._region_loaded((area,mesh,centers,FaceIndex(centers)))
     window._set_mode('paint')
-    region = window.regions['DEMO']
+    region = window.regions[area]
     point = centers[len(centers)//3]
     mirror = point.copy()
     mirror[2] = 2*window.midline_z_um-mirror[2]
@@ -29,7 +30,7 @@ def exercise_window(window, destination=None):
     camera = tuple(tuple(v) for v in window.plotter.camera_position)
     before = set(region.painted_faces)
     window._paint_at_points([point,mirror])
-    window._record_change('DEMO',before,region.painted_faces)
+    window._record_change(area,before,region.painted_faces)
     painted = set(region.painted_faces)
     assert painted, 'Paint produced no faces'
     actor = region.painted_actor
@@ -49,6 +50,8 @@ def exercise_window(window, destination=None):
     window._undo()
     assert region.painted_faces==painted
     frame = pd.DataFrame({'Name':['cell A','cell B','cell C'],'Tau':[1.,5.,10.], 'x':[1.2,1.25,1.3],'y':[.9,.95,1.],'z':[1.,1.05,1.1]})
+    if not window._is_demo:
+        frame[['x','y','z']] = centers[:3]/1000
     xyz,description = convert_coordinates(frame[['x','y','z']].to_numpy(),'mm',window.resolution_um,window.shape)
     window._cells_loaded(('synthetic.csv',frame,frame[['x','y','z']].to_numpy(),xyz,description,'mm'))
     window.cell_colorby_combo.setCurrentText('Tau')
@@ -65,11 +68,13 @@ def exercise_window(window, destination=None):
     model.filter('cell B')
     model.select_filtered(True)
     assert model.selection.all()
-    window.coronal_slider.setValue(48)
-    window.sagittal_slider.setValue(40)
+    slice_x = int(round(xyz[:,0].mean()/window.resolution_um[0]))
+    slice_z = int(round(xyz[:,2].mean()/window.resolution_um[2]))
+    window.coronal_slider.setValue(slice_x)
+    window.sagittal_slider.setValue(slice_z)
     window._flush_slices()
     axes = window.coronal_fig.axes[0]
-    window.coronal_slider.setValue(49)
+    window.coronal_slider.setValue(min(slice_x+1,window.shape[0]-1))
     window._flush_slices()
     assert window.coronal_fig.axes[0] is axes, 'Slice update rebuilt axes'
     window._set_mode('navigate')
@@ -81,15 +86,15 @@ def exercise_window(window, destination=None):
     assert Path(coronal).stat().st_size>1000
     assert Path(sagittal).stat().st_size>1000
     export = Path(export_snapshot(window._snapshot(),folder))
-    results = validate_active_roi_export(export/'DEMO_metadata.json')
+    results = validate_active_roi_export(export/f'{area}_metadata.json')
     assert all(r.ok for r in results), [r.summary() for r in results]
     cells = pd.read_csv(export/'imported_cells_atlas_coordinates.csv')
     np.testing.assert_allclose(cells[['app_x_um','app_y_um','app_z_um']],xyz)
     assert cells['app_selected'].tolist()==[True,False,True]
     manifest = json.loads((export/'scene_manifest.json').read_text())
-    assert manifest['atlas']=='synthetic_demo'
+    assert manifest['atlas']==('synthetic_demo' if window._is_demo else 'allen_mouse_25um')
     window._clear_cells()
     assert window.cell_layer is None
     window._dirty = False
-    (folder/'smoke-result.json').write_text(json.dumps({'status':'PASS','checks':['launch','region load','paint and symmetry','erase','undo/redo','camera preservation','actor reuse','cell units','cell selection','numeric heatmaps','slice axes reuse','PNG screenshots','portable ROI validation','cell export coordinates','clear cells'],'atlas':'synthetic_demo'},indent=2))
+    (folder/'smoke-result.json').write_text(json.dumps({'status':'PASS','checks':['launch','region load','paint and symmetry','erase','undo/redo','camera preservation','actor reuse','cell units','cell selection','numeric heatmaps','slice axes reuse','PNG screenshots','portable ROI validation','cell export coordinates','clear cells'],'atlas':manifest['atlas']},indent=2))
     return folder

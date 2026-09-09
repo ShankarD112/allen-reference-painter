@@ -76,3 +76,12 @@ Run `34372832860`, commit `10a525f1085a5438bf0449b79f50e2bed2e02a9f`:
 - Added a required PASS report check so source GUI gates cannot pass merely by exiting early. Launcher diagnostics now consistently use the application logger namespace.
 
 Sources inspected: `pyvista/pyvistaqt/.github/workflows/ci.yml`, `pyvista/setup-headless-display-action/README.md`, action definition and Windows installation script. Runtime graphics on clean end-user Windows hardware remains a separate release gate.
+
+## CI iteration 3 — Windows desktop passes; frozen startup fails
+
+Run `34373285814`, commit `ff445a9dc311e567174163f8f128056ff68b94e2`:
+
+- Linux and Windows passed all 11 unit tests and completed their offline GUI smoke reports. The Mesa CI setup resolved the Windows source graphics failure.
+- PyInstaller successfully built the Windows folder executable, but that executable exited 1 during its smoke test. It was not uploaded as a usable application. Added application-log output directly to the executable test step to expose the packaged startup failure.
+- Added a real-atlas integration gate on Linux (`--self-test-real`) to check actual BrainGlobe download, annotation structure, ENT mesh loading, painting and coordinate export. This is additional integration evidence, not a substitute for human anatomical review or clean-Windows hardware testing.
+- The local checkout was restored from the GitHub review branch after the workspace reset. Pending integration-test changes were reconstructed and will be committed before relying on them.

@@ -10,8 +10,10 @@ def main():
     parser = argparse.ArgumentParser(description='Allen Reference Painter desktop')
     parser.add_argument('--demo',action='store_true',help='Open synthetic offline practice data; not Allen anatomy')
     parser.add_argument('--self-test',action='store_true',help='Run offline packaged GUI smoke test and exit')
+    parser.add_argument('--self-test-real',action='store_true',help='Run integration test against the real Allen atlas (downloads data)')
     parser.add_argument('--self-test-output',default=None,help='Folder for smoke-test outputs')
     args = parser.parse_args()
+    args.self_test = args.self_test or args.self_test_real
     from .runtime import configure_logging
     log_path = configure_logging()
     log = logging.getLogger('allen_reference_painter.launcher')
@@ -57,7 +59,7 @@ def main():
             self.demo_button.clicked.connect(lambda:self.start(True))
             layout.addWidget(self.demo_button)
             if args.demo or args.self_test:
-                QtCore.QTimer.singleShot(0,lambda:self.start(True))
+                QtCore.QTimer.singleShot(0,lambda:self.start(not args.self_test_real))
 
         def start(self,demo):
             if self.job is not None:

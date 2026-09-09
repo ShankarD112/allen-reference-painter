@@ -47,6 +47,12 @@ jobs:
         run: python -m allen_reference_painter.main --self-test --self-test-output smoke-output
       - name: Require completed GUI test report
         run: python -c "import json; assert json.load(open('smoke-output/smoke-result.json'))['status'] == 'PASS'"
+      - name: Real Allen atlas integration
+        if: runner.os == 'Linux'
+        run: xvfb-run -a python -m allen_reference_painter.main --self-test-real --self-test-output real-atlas-smoke
+      - name: Require completed real atlas report
+        if: runner.os == 'Linux'
+        run: python -c "import json; r=json.load(open('real-atlas-smoke/smoke-result.json')); assert r['status']=='PASS' and r['atlas']=='allen_mouse_25um'"
       - name: Record resolved dependencies
         if: always()
         run: python -m pip freeze > resolved-dependencies.txt
@@ -56,6 +62,7 @@ jobs:
           name: validation-${{ runner.os }}
           path: |
             smoke-output/
+            real-atlas-smoke/
             test-data/logs/
             resolved-dependencies.txt
   windows-executable:
@@ -84,6 +91,7 @@ jobs:
         shell: pwsh
         run: |
           $process = Start-Process -FilePath dist/AllenReferencePainter/AllenReferencePainter.exe -ArgumentList '--self-test --self-test-output frozen-smoke' -Wait -PassThru
+          if (Test-Path package-test-data/logs/application.log) { Get-Content package-test-data/logs/application.log }
           if ($process.ExitCode -ne 0) { throw "Executable smoke failed with exit $($process.ExitCode)" }
           if (!(Test-Path frozen-smoke/smoke-result.json)) { throw 'Missing executable smoke result' }
       - name: Record packaged dependencies and hashes
