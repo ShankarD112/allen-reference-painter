@@ -26,6 +26,13 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
+      - name: Windows software OpenGL for CI
+        if: runner.os == 'Windows'
+        uses: pyvista/setup-headless-display-action@9c1c7435d9635423c90d2c37489588c81673274a # v3
+        with:
+          pyvista: false
+          qt: false
+          install-mesa3d-offscreen: false
       - run: python -m pip install -e '.[dev]'
       - name: Linux display libraries
         if: runner.os == 'Linux'
@@ -38,6 +45,8 @@ jobs:
       - name: Windows GUI smoke
         if: runner.os == 'Windows'
         run: python -m allen_reference_painter.main --self-test --self-test-output smoke-output
+      - name: Require completed GUI test report
+        run: python -c "import json; assert json.load(open('smoke-output/smoke-result.json'))['status'] == 'PASS'"
       - name: Record resolved dependencies
         if: always()
         run: python -m pip freeze > resolved-dependencies.txt
@@ -62,6 +71,13 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
+      - name: Windows software OpenGL for CI
+        if: runner.os == 'Windows'
+        uses: pyvista/setup-headless-display-action@9c1c7435d9635423c90d2c37489588c81673274a # v3
+        with:
+          pyvista: false
+          qt: false
+          install-mesa3d-offscreen: false
       - run: python -m pip install -e '.[dev]'
       - run: python -m PyInstaller --noconfirm packaging/AllenReferencePainter.spec
       - name: Test the actual executable

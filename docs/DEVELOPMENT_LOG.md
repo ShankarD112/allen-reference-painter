@@ -65,3 +65,14 @@ The new coordinator reuses legacy scientific/metadata behavior by inheritance. T
 - Compacted slice options into an expandable panel so the primary view has room on smaller displays. Visual inspection remains pending.
 
 - Windows iteration 1 passed all 11 unit tests and brush equivalence. Source GUI smoke failed during window creation; OpenGL initialization warnings appeared, but the Python traceback was only in the local diagnostic artifact. Enabled stderr diagnostics for self-test runs so CI directly records failures. Artifact download could not be inspected locally (HTTP 403); no passing GUI result is claimed.
+
+## CI iteration 2 — Linux desktop passes
+
+Run `34372832860`, commit `10a525f1085a5438bf0449b79f50e2bed2e02a9f`:
+
+- Linux passed all 11 tests and the full offline GUI exercise, including painting/erase/undo, camera and actor reuse, cell conversion/selection, slices, PNG output and export validation. Diagnostic artifact includes workspace and scene screenshots.
+- Windows passed all 11 unit tests. The window constructor reached Ready; the process then exited during native OpenGL initialization before the smoke callback. This is a graphics failure, not evidence of a Python startup exception.
+- Followed PyVista's own CI setup: added the upstream headless display action pinned to v3 commit `9c1c7435d9635423c90d2c37489588c81673274a`, enabling Mesa OpenGL on ephemeral Windows CI runners. This is test infrastructure only; no software driver is bundled into end-user installations.
+- Added a required PASS report check so source GUI gates cannot pass merely by exiting early. Launcher diagnostics now consistently use the application logger namespace.
+
+Sources inspected: `pyvista/pyvistaqt/.github/workflows/ci.yml`, `pyvista/setup-headless-display-action/README.md`, action definition and Windows installation script. Runtime graphics on clean end-user Windows hardware remains a separate release gate.

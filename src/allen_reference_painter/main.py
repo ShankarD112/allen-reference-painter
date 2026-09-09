@@ -14,7 +14,7 @@ def main():
     args = parser.parse_args()
     from .runtime import configure_logging
     log_path = configure_logging()
-    log = logging.getLogger(__name__)
+    log = logging.getLogger('allen_reference_painter.launcher')
     if args.self_test:
         logging.getLogger('allen_reference_painter').addHandler(logging.StreamHandler(sys.stderr))
     from qtpy import QtCore, QtWidgets
