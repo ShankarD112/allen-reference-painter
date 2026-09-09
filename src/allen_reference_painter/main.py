@@ -73,7 +73,7 @@ def main():
                 # Import heavy dependencies off the GUI thread before constructing widgets.
                 from . import desktop
                 import numpy as np
-                import trimesh
+                from .meshes import load_atlas_mesh
                 if demo:
                     from .demo import DemoAtlas
                     atlas = DemoAtlas()
@@ -84,7 +84,7 @@ def main():
                 shell = None
                 for region in ['root','grey','CH','CTX','HPF']:
                     try:
-                        shell = trimesh.load(atlas.meshfile_from_structure(region),force='mesh')
+                        shell = load_atlas_mesh(atlas, region)
                         break
                     except Exception:
                         log.warning('reference mesh unavailable region=%s',region,exc_info=True)

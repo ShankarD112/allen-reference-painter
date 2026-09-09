@@ -7,6 +7,7 @@ import pandas as pd
 import trimesh
 from qtpy import QtCore, QtWidgets
 from .spatial import FaceIndex
+from .meshes import load_atlas_mesh
 from .cells import convert_coordinates
 from .cell_table import CellTableModel
 from .exporting import export_snapshot
@@ -18,7 +19,7 @@ def exercise_window(window, destination=None):
     folder.mkdir(parents=True,exist_ok=True)
     app = QtWidgets.QApplication.instance()
     area = 'DEMO' if window._is_demo else 'ENT'
-    mesh = trimesh.load(window.atlas.meshfile_from_structure(area),force='mesh')
+    mesh = load_atlas_mesh(window.atlas, area)
     centers = np.asarray(mesh.triangles_center)
     window._region_loaded((area,mesh,centers,FaceIndex(centers)))
     window._set_mode('paint')

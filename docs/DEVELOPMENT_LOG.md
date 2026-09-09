@@ -85,3 +85,11 @@ Run `34373285814`, commit `ff445a9dc311e567174163f8f128056ff68b94e2`:
 - PyInstaller successfully built the Windows folder executable, but that executable exited 1 during its smoke test. It was not uploaded as a usable application. Added application-log output directly to the executable test step to expose the packaged startup failure.
 - Added a real-atlas integration gate on Linux (`--self-test-real`) to check actual BrainGlobe download, annotation structure, ENT mesh loading, painting and coordinate export. This is additional integration evidence, not a substitute for human anatomical review or clean-Windows hardware testing.
 - The local checkout was restored from the GitHub review branch after the workspace reset. Pending integration-test changes were reconstructed and will be committed before relying on them.
+
+## CI iteration 4 — real data exposes an atlas API incompatibility
+
+Run `34411069097`: synthetic desktop tests still pass. The real atlas downloads and opens its annotation volume, but ENT loading failed because current BrainGlobe atlas v3 returns a lazy Draco cache path from `meshfile_from_structure`, not a ready OBJ/PLY. Directly reading it would also bypass the required XYZ/nanometer → atlas-axis/micron conversion.
+
+Changed reference and region loading to BrainGlobe's public `mesh_from_structure` API. It performs the lazy download, decoding and normalization. Convert its meshio triangle arrays to Trimesh with `process=False`, preserving face order and normalized coordinates. Added tests for this adapter and invalid mesh handling. The file path adapter remains only for the synthetic demo/older adapters.
+
+Inspected the upstream `brainglobe_atlasapi/core.py` and `structure_class.py` implementations to verify the normalization contract. The failed real-data gate is retained; it was not skipped to make packaging green.

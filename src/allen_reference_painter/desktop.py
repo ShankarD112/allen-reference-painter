@@ -16,6 +16,7 @@ from .cell_table import CellTableDialog
 from .cells import convert_coordinates, read_cells
 from .exporting import export_snapshot
 from .jobs import Job
+from .meshes import load_atlas_mesh
 from .runtime import data_dir
 from .spatial import FaceIndex
 from .workspace_ui import build_workspace, STYLE
@@ -141,7 +142,7 @@ class PainterWindow(ModernMeshPainterWindow):
             return
         self.load_region_button.setEnabled(False)
         def load():
-            mesh = trimesh.load(self.atlas.meshfile_from_structure(acronym), force='mesh')
+            mesh = load_atlas_mesh(self.atlas, acronym)
             centers = np.asarray(mesh.triangles_center)
             return acronym, mesh, centers, FaceIndex(centers)
         self._run_job('Loading region', load, self._region_loaded)
