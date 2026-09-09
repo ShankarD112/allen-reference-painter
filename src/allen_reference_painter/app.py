@@ -27,6 +27,7 @@ from qtpy import QtCore, QtWidgets
 from qtpy.QtGui import QColor
 
 from .runtime import data_dir
+from .meshes import load_atlas_mesh
 
 PROJECT_DIR = data_dir()
 OUTPUT_DIR = PROJECT_DIR / "outputs"
@@ -460,7 +461,7 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         self.plotter.clear()
         for acronym in ["root", "grey", "CH", "CTX", "HPF"]:
             try:
-                mesh = trimesh.load(self.atlas.meshfile_from_structure(acronym), force="mesh")
+                mesh = load_atlas_mesh(self.atlas, acronym)
                 self.reference_actor = self.plotter.add_mesh(
                     pv.wrap(mesh),
                     color="#d8d8d8",
@@ -483,7 +484,7 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
                 self.active_area = acronym
             return True
         try:
-            tri_mesh = trimesh.load(self.atlas.meshfile_from_structure(acronym), force="mesh")
+            tri_mesh = load_atlas_mesh(self.atlas, acronym)
             sid = self._structure_id(acronym)
             region = RegionMesh(
                 acronym=acronym,

@@ -590,6 +590,7 @@ class PainterWindow(ModernMeshPainterWindow):
     def _snapshot(self, active_only=False):
         regions = [self.regions[self.active_area]] if active_only else list(self.regions.values())
         snapshot = dict(atlas='synthetic_demo' if self._is_demo else 'allen_mouse_25um', atlas_resolution_um=self.resolution_um,atlas_shape=self.shape,paint_color=self.paint_color,mirror_color=self.mirror_color,regions=[],cells=None)
+        snapshot['atlas_version'] = 'synthetic-v1' if self._is_demo else str(getattr(self.atlas, 'local_version', 'unknown'))
         for r in regions:
             snapshot['regions'].append(dict(area=r.acronym,name=r.name,structure_id=r.structure_id,color=r.color,visible=r.visible,vertices=np.asarray(r.trimesh_mesh.vertices).copy(),faces=np.asarray(r.trimesh_mesh.faces).copy(),centroids=r.face_centroids.copy(),painted_faces=sorted(r.painted_faces)))
         if self.cell_layer is not None:

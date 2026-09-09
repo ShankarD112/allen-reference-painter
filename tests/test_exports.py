@@ -12,7 +12,7 @@ class ExportTests(unittest.TestCase):
     def snapshot(self):
         vertices=np.array([[0.,0.,0.],[25.,0.,0.],[0.,25.,0.],[0.,0.,25.]])
         faces=np.array([[0,1,2],[0,1,3]])
-        return dict(atlas='test_atlas',atlas_shape=(10,10,10),atlas_resolution_um=(25,25,25),paint_color='#ff3333',mirror_color='#00ffff',regions=[dict(area='TEST',name='test region',structure_id=1,color='#dddddd',visible=True,vertices=vertices,faces=faces,centroids=vertices[faces].mean(axis=1),painted_faces=[1])],cells=dict(dataframe=pd.DataFrame({'Name':['A','B']}),xyz=np.array([[1,2,3],[4,5,6]]),selection=np.array([True,False]),mode='microns',label='Name',color='(single color)'))
+        return dict(atlas='test_atlas',atlas_version='3.0-test',atlas_shape=(10,10,10),atlas_resolution_um=(25,25,25),paint_color='#ff3333',mirror_color='#00ffff',regions=[dict(area='TEST',name='test region',structure_id=1,color='#dddddd',visible=True,vertices=vertices,faces=faces,centroids=vertices[faces].mean(axis=1),painted_faces=[1])],cells=dict(dataframe=pd.DataFrame({'Name':['A','B']}),xyz=np.array([[1,2,3],[4,5,6]]),selection=np.array([True,False]),mode='microns',label='Name',color='(single color)'))
 
     def test_round_trip_after_moving_export(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -30,6 +30,10 @@ class ExportTests(unittest.TestCase):
             manifest=json.loads((moved/'scene_manifest.json').read_text())
             self.assertEqual(manifest['axis_order'],['AP','DV','ML'])
             self.assertEqual(manifest['selected_cell_count'],1)
+            self.assertEqual(manifest['atlas_version'],'3.0-test')
+            metadata=json.loads((moved/'TEST_metadata.json').read_text())
+            self.assertEqual(metadata['atlas_version'],'3.0-test')
+            self.assertEqual(len(metadata['mesh_geometry_sha256']),64)
 
     def test_same_second_exports_never_overwrite(self):
         with tempfile.TemporaryDirectory() as folder:

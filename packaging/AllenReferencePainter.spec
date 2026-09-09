@@ -6,7 +6,7 @@ root = Path(SPECPATH).parent
 hiddenimports = ['PySide6.QtSvg', 'matplotlib.backends.backend_qtagg', 'openpyxl', 'xlrd', 'scipy.spatial._ckdtree']
 datas = [(str(root/'LICENSE'),'.'), (str(root/'README.md'),'.')]
 binaries = []
-for package in ['brainglobe_atlasapi','pyvista','pyvistaqt']:
+for package in ['brainglobe_atlasapi','pyvista','pyvistaqt','wasmtime']:
     package_data, package_binaries, package_imports = collect_all(package)
     datas += package_data
     binaries += package_binaries

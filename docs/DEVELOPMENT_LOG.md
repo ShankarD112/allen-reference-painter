@@ -93,3 +93,9 @@ Run `34411069097`: synthetic desktop tests still pass. The real atlas downloads 
 Changed reference and region loading to BrainGlobe's public `mesh_from_structure` API. It performs the lazy download, decoding and normalization. Convert its meshio triangle arrays to Trimesh with `process=False`, preserving face order and normalized coordinates. Added tests for this adapter and invalid mesh handling. The file path adapter remains only for the synthetic demo/older adapters.
 
 Inspected the upstream `brainglobe_atlasapi/core.py` and `structure_class.py` implementations to verify the normalization contract. The failed real-data gate is retained; it was not skipped to make packaging green.
+
+- Applied the same public mesh adapter to legacy launchers so regression comparison is not defeated by the atlas v3 storage change. Exports now also record the actual atlas version and a SHA-256 of the loaded full-mesh vertex/face arrays, tying face IDs to one precise geometry rather than only a stable atlas name.
+
+- Extended the frozen/source smoke to parse synthetic CSV, TSV, TXT and XLSX files, including the runtime-selected Excel engine, rather than only injecting an already-parsed DataFrame. Legacy XLS is implemented with xlrd but still needs a representative-file release check.
+
+- CI run 34411472341 passed all 13 tests on Linux and Windows, both synthetic desktop workflows, and the real Allen atlas workflow (ENT, 11,458 triangles). The frozen executable failed before atlas loading because the transitive Wasmtime DLL was absent. Added explicit Wasmtime binary/data collection; preserving the executable launch gate.

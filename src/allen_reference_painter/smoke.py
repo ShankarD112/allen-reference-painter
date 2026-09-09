@@ -8,7 +8,7 @@ import trimesh
 from qtpy import QtCore, QtWidgets
 from .spatial import FaceIndex
 from .meshes import load_atlas_mesh
-from .cells import convert_coordinates
+from .cells import convert_coordinates, read_cells
 from .cell_table import CellTableModel
 from .exporting import export_snapshot
 from .export_validation import validate_active_roi_export
@@ -53,6 +53,17 @@ def exercise_window(window, destination=None):
     frame = pd.DataFrame({'Name':['cell A','cell B','cell C'],'Tau':[1.,5.,10.], 'x':[1.2,1.25,1.3],'y':[.9,.95,1.],'z':[1.,1.05,1.1]})
     if not window._is_demo:
         frame[['x','y','z']] = centers[:3]/1000
+    # Exercise readers inside the frozen app as well as source, including the
+    # dynamically selected Excel engine. These files are synthetic test input.
+    for suffix, separator in [('csv', ','), ('tsv', '\t'), ('txt', '\t'), ('xlsx', None)]:
+        table_path = folder / f'input-cells.{suffix}'
+        if suffix == 'xlsx':
+            frame.to_excel(table_path, index=False, engine='openpyxl')
+        else:
+            frame.to_csv(table_path, index=False, sep=separator)
+        parsed, parsed_xyz = read_cells(table_path)
+        assert parsed['Name'].tolist() == frame['Name'].tolist()
+        np.testing.assert_allclose(parsed_xyz, frame[['x','y','z']].to_numpy())
     xyz,description = convert_coordinates(frame[['x','y','z']].to_numpy(),'mm',window.resolution_um,window.shape)
     window._cells_loaded(('synthetic.csv',frame,frame[['x','y','z']].to_numpy(),xyz,description,'mm'))
     window.cell_colorby_combo.setCurrentText('Tau')
@@ -97,5 +108,5 @@ def exercise_window(window, destination=None):
     window._clear_cells()
     assert window.cell_layer is None
     window._dirty = False
-    (folder/'smoke-result.json').write_text(json.dumps({'status':'PASS','checks':['launch','region load','paint and symmetry','erase','undo/redo','camera preservation','actor reuse','cell units','cell selection','numeric heatmaps','slice axes reuse','PNG screenshots','portable ROI validation','cell export coordinates','clear cells'],'atlas':manifest['atlas']},indent=2))
+    (folder/'smoke-result.json').write_text(json.dumps({'status':'PASS','checks':['launch','region load','paint and symmetry','erase','undo/redo','camera preservation','actor reuse','CSV/TSV/TXT/XLSX readers','cell units','cell selection','numeric heatmaps','slice axes reuse','PNG screenshots','portable ROI validation','cell export coordinates','clear cells'],'atlas':manifest['atlas']},indent=2))
     return folder

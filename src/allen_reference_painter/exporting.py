@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 from datetime import datetime, timezone
 import json
+import hashlib
 from pathlib import Path
 import shutil
 import tempfile
@@ -19,6 +20,7 @@ def export_snapshot(snapshot, destination, active_only=False):
     final = destination / stem
     try:
         manifest = {k: snapshot[k] for k in ('atlas', 'atlas_resolution_um', 'atlas_shape', 'paint_color', 'mirror_color')}
+        manifest['atlas_version'] = snapshot.get('atlas_version', 'unspecified')
         manifest.update(schema_version=2, coordinate_units='um', axis_order=['AP', 'DV', 'ML'], coordinate_origin='BrainGlobe atlas origin', created_utc=datetime.now(timezone.utc).isoformat(), regions=[], cells_file=None)
         for region in snapshot['regions']:
             acronym = region['area']
@@ -28,6 +30,10 @@ def export_snapshot(snapshot, destination, active_only=False):
             ids = np.asarray(region['painted_faces'], dtype=np.int64)
             item = {k: region[k] for k in ('area','name','structure_id','color','visible')}
             item['n_painted_faces'] = len(ids)
+            geometry_hash = hashlib.sha256()
+            geometry_hash.update(np.asarray(region['vertices'], dtype='<f8').tobytes())
+            geometry_hash.update(np.asarray(region['faces'], dtype='<i8').tobytes())
+            item['mesh_geometry_sha256'] = geometry_hash.hexdigest()
             if not active_only:
                 name = f'{safe}_full_mesh.ply'
                 mesh.export(staging / name)
@@ -44,7 +50,7 @@ def export_snapshot(snapshot, destination, active_only=False):
                     for face_id, xyz in zip(ids, region['centroids'][ids]):
                         writer.writerow([acronym, int(face_id), *xyz])
                 metadata = {k: manifest[k] for k in ('atlas','atlas_resolution_um','atlas_shape','paint_color','mirror_color','coordinate_units','axis_order','coordinate_origin')}
-                metadata.update(area=acronym, region_name=region['name'], structure_id=region['structure_id'], n_painted_faces=len(ids), ply_file=name, face_ids_file=faces_name, region_color=region['color'])
+                metadata.update(atlas_version=manifest['atlas_version'], mesh_geometry_sha256=item['mesh_geometry_sha256'], area=acronym, region_name=region['name'], structure_id=region['structure_id'], n_painted_faces=len(ids), ply_file=name, face_ids_file=faces_name, region_color=region['color'])
                 metadata_name = f'{safe}_metadata.json'
                 (staging / metadata_name).write_text(json.dumps(metadata, indent=2), encoding='utf-8')
                 item.update(painted_roi_file=name, painted_face_ids_file=faces_name, metadata_file=metadata_name)
