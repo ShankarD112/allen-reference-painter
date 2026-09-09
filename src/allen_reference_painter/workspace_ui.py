@@ -105,7 +105,7 @@ def build_workspace(w):
 
     regions = page('1 Regions')
     hint(regions, 'Find a brain region by name or acronym. Load it, then switch to Paint.')
-    w.region_search = QtWidgets.QLineEdit(placeholderText='Search regions, e.g. ENT or hippocampus')
+    w.region_search = QtWidgets.QLineEdit(placeholderText='Search DEMO to load the practice region' if w._is_demo else 'Search regions, e.g. ENT or hippocampus')
     w.region_search.textChanged.connect(w._filter_region_picker)
     w.region_search.returnPressed.connect(w._load_selected_region)
     regions.addWidget(w.region_search)

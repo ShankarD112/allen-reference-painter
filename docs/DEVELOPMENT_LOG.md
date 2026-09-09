@@ -54,3 +54,14 @@ The new coordinator reuses legacy scientific/metadata behavior by inheritance. T
 - Full native objects and export snapshots still use memory proportional to loaded data. Cell-table filter text is precomputed; no claim of unlimited-size datasets.
 - No scene reload was present in the baseline; exports remain analysis outputs, not editable project saves. This is stated in the guide and on close.
 - Executables are unsigned development artifacts until the release checklist is satisfied. No release is published automatically.
+
+## CI iteration 1 — review branch published
+
+- Direct `git push` failed because the shell had no GitHub credentials. Published the exact checked-out tree through the authorized GitHub connector and opened draft PR #2. Verified the local Git tree equals the uploaded tree (`3d33ec13a1927d9dd764752d838dc67b2b349029`).
+- Initial commit on GitHub: `f61be88764f9f75ca5585bf40850e5264a1b71c7`.
+- Run `34372381697`: Linux core and export tests passed (10); table import failed because `libEGL.so.1` was absent. Moved system library installation before unit tests, since Qt imports need EGL even without a window.
+- Removed duplicate feature-branch push triggers; PR updates still run all gates, and main pushes retain validation.
+- Reviewed historical packaging run `28120738167`: failure was a launcher path outside the checkout. New spec resolves from the spec directory and includes its launcher in version control.
+- Compacted slice options into an expandable panel so the primary view has room on smaller displays. Visual inspection remains pending.
+
+- Windows iteration 1 passed all 11 unit tests and brush equivalence. Source GUI smoke failed during window creation; OpenGL initialization warnings appeared, but the Python traceback was only in the local diagnostic artifact. Enabled stderr diagnostics for self-test runs so CI directly records failures. Artifact download could not be inspected locally (HTTP 403); no passing GUI result is claimed.

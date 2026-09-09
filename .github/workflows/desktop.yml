@@ -1,7 +1,7 @@
 name: Desktop validation and Windows build
 on:
   push:
-    branches: [main, 'feat/**']
+    branches: [main]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -27,11 +27,11 @@ jobs:
           python-version: '3.11'
           cache: pip
       - run: python -m pip install -e '.[dev]'
-      - run: python -m unittest discover -s tests -v
-      - run: python scripts/benchmark_brush.py
       - name: Linux display libraries
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y xvfb libegl1 libxcb-cursor0 libxkbcommon-x11-0
+        run: sudo apt-get update && sudo apt-get install -y xvfb libegl1 libgl1 libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-render-util0 libxcb-randr0 libxcb-image0
+      - run: python -m unittest discover -s tests -v
+      - run: python scripts/benchmark_brush.py
       - name: Linux GUI smoke
         if: runner.os == 'Linux'
         run: xvfb-run -a python -m allen_reference_painter.main --self-test --self-test-output smoke-output

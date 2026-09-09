@@ -15,6 +15,8 @@ def main():
     from .runtime import configure_logging
     log_path = configure_logging()
     log = logging.getLogger(__name__)
+    if args.self_test:
+        logging.getLogger('allen_reference_painter').addHandler(logging.StreamHandler(sys.stderr))
     from qtpy import QtCore, QtWidgets
     from .jobs import Job
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv[:1])
