@@ -2,7 +2,7 @@
 
 Preserve the original `docs/MODULAR_REFACTOR.md` merge rule. Do not merge or publish a release until all required checks have evidence.
 
-- [ ] Linux and Windows unit suites pass.
+- [x] Linux and Windows unit suites pass (13 tests; run 34412215929).
 - [ ] Source desktop smoke passes, with inspectable workspace/scene PNGs.
 - [ ] Windows executable build succeeds and **the actual executable** passes its smoke test.
 - [ ] Inspect the UI at 1080×760, typical 1440×980, and Windows 125%/150% scaling.
@@ -19,3 +19,7 @@ Preserve the original `docs/MODULAR_REFACTOR.md` merge rule. Do not merge or pub
 - [ ] Record exact resolved dependencies, build SHA, artifact checksums, test evidence and outstanding limitations.
 
 CI builds development artifacts for review. Publishing a tagged GitHub Release and code signing are separate release operations.
+
+## Automated evidence
+
+Run 34412215929 passes the Linux and Windows source desktop workflow, including synthetic file imports (CSV/TSV/TXT/XLSX), painting, selection, screenshots and export validation. Linux also passes the real Allen atlas workflow. Screenshot files are generated for review; no manual visual inspection or clean end-user Windows test has been recorded. The remaining boxes above intentionally require their stated evidence.

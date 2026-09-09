@@ -94,6 +94,14 @@ jobs:
           if (Test-Path package-test-data/logs/application.log) { Get-Content package-test-data/logs/application.log }
           if ($process.ExitCode -ne 0) { throw "Executable smoke failed with exit $($process.ExitCode)" }
           if (!(Test-Path frozen-smoke/smoke-result.json)) { throw 'Missing executable smoke result' }
+      - name: Test real Allen atlas in the executable
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath dist/AllenReferencePainter/AllenReferencePainter.exe -ArgumentList '--self-test-real --self-test-output frozen-real-smoke' -Wait -PassThru
+          if (Test-Path package-test-data/logs/application.log) { Get-Content package-test-data/logs/application.log }
+          if ($process.ExitCode -ne 0) { throw "Real atlas executable smoke failed with exit $($process.ExitCode)" }
+          $result = Get-Content frozen-real-smoke/smoke-result.json | ConvertFrom-Json
+          if ($result.status -ne 'PASS' -or $result.atlas -ne 'allen_mouse_25um') { throw 'Real atlas executable check failed' }
       - name: Record packaged dependencies and hashes
         shell: pwsh
         run: |
@@ -109,5 +117,6 @@ jobs:
           name: packaged-smoke-diagnostics
           path: |
             frozen-smoke/
+            frozen-real-smoke/
             package-test-data/logs/
             build/AllenReferencePainter/warn-AllenReferencePainter.txt
