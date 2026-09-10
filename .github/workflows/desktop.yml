@@ -1,0 +1,122 @@
+name: Desktop validation and Windows build
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: desktop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      QT_API: pyside6
+      ALLEN_PAINTER_DATA_DIR: ${{ github.workspace }}/test-data
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Windows software OpenGL for CI
+        if: runner.os == 'Windows'
+        uses: pyvista/setup-headless-display-action@9c1c7435d9635423c90d2c37489588c81673274a # v3
+        with:
+          pyvista: false
+          qt: false
+          install-mesa3d-offscreen: false
+      - run: python -m pip install -e '.[dev]'
+      - name: Linux display libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb libegl1 libgl1 libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-render-util0 libxcb-randr0 libxcb-image0
+      - run: python -m unittest discover -s tests -v
+      - run: python scripts/benchmark_brush.py
+      - name: Linux GUI smoke
+        if: runner.os == 'Linux'
+        run: xvfb-run -a python -m allen_reference_painter.main --self-test --self-test-output smoke-output
+      - name: Windows GUI smoke
+        if: runner.os == 'Windows'
+        run: python -m allen_reference_painter.main --self-test --self-test-output smoke-output
+      - name: Require completed GUI test report
+        run: python -c "import json; assert json.load(open('smoke-output/smoke-result.json'))['status'] == 'PASS'"
+      - name: Real Allen atlas integration
+        if: runner.os == 'Linux'
+        run: xvfb-run -a python -m allen_reference_painter.main --self-test-real --self-test-output real-atlas-smoke
+      - name: Require completed real atlas report
+        if: runner.os == 'Linux'
+        run: python -c "import json; r=json.load(open('real-atlas-smoke/smoke-result.json')); assert r['status']=='PASS' and r['atlas']=='allen_mouse_25um'"
+      - name: Record resolved dependencies
+        if: always()
+        run: python -m pip freeze > resolved-dependencies.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: validation-${{ runner.os }}
+          path: |
+            smoke-output/
+            real-atlas-smoke/
+            test-data/logs/
+            resolved-dependencies.txt
+  windows-executable:
+    needs: tests
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      QT_API: pyside6
+      ALLEN_PAINTER_DATA_DIR: ${{ github.workspace }}/package-test-data
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Windows software OpenGL for CI
+        if: runner.os == 'Windows'
+        uses: pyvista/setup-headless-display-action@9c1c7435d9635423c90d2c37489588c81673274a # v3
+        with:
+          pyvista: false
+          qt: false
+          install-mesa3d-offscreen: false
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m PyInstaller --noconfirm packaging/AllenReferencePainter.spec
+      - name: Test the actual executable
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath dist/AllenReferencePainter/AllenReferencePainter.exe -ArgumentList '--self-test --self-test-output frozen-smoke' -Wait -PassThru
+          if (Test-Path package-test-data/logs/application.log) { Get-Content package-test-data/logs/application.log }
+          if ($process.ExitCode -ne 0) { throw "Executable smoke failed with exit $($process.ExitCode)" }
+          if (!(Test-Path frozen-smoke/smoke-result.json)) { throw 'Missing executable smoke result' }
+      - name: Test real Allen atlas in the executable
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath dist/AllenReferencePainter/AllenReferencePainter.exe -ArgumentList '--self-test-real --self-test-output frozen-real-smoke' -Wait -PassThru
+          if (Test-Path package-test-data/logs/application.log) { Get-Content package-test-data/logs/application.log }
+          if ($process.ExitCode -ne 0) { throw "Real atlas executable smoke failed with exit $($process.ExitCode)" }
+          $result = Get-Content frozen-real-smoke/smoke-result.json | ConvertFrom-Json
+          if ($result.status -ne 'PASS' -or $result.atlas -ne 'allen_mouse_25um') { throw 'Real atlas executable check failed' }
+      - name: Record packaged dependencies and hashes
+        shell: pwsh
+        run: |
+          python -m pip freeze > dist/AllenReferencePainter/resolved-dependencies.txt
+          Get-ChildItem dist/AllenReferencePainter -File -Recurse | Get-FileHash -Algorithm SHA256 | Format-Table -AutoSize | Out-String -Width 500 | Set-Content dist/AllenReferencePainter/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AllenReferencePainter-Windows-x64
+          path: dist/AllenReferencePainter/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: packaged-smoke-diagnostics
+          path: |
+            frozen-smoke/
+            frozen-real-smoke/
+            package-test-data/logs/
+            build/AllenReferencePainter/warn-AllenReferencePainter.txt

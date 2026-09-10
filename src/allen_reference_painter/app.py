@@ -26,7 +26,10 @@ from pyvistaqt import QtInteractor
 from qtpy import QtCore, QtWidgets
 from qtpy.QtGui import QColor
 
-PROJECT_DIR = Path(__file__).resolve().parents[2]
+from .runtime import data_dir
+from .meshes import load_atlas_mesh
+
+PROJECT_DIR = data_dir()
 OUTPUT_DIR = PROJECT_DIR / "outputs"
 PROJECTS_DIR = PROJECT_DIR / "projects"
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -118,12 +121,12 @@ class CellLayer:
 
 
 class MeshPainterWindow(QtWidgets.QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, atlas=None) -> None:
         super().__init__()
         self.setWindowTitle("Allen Reference Painter")
         self.resize(2150, 1180)
 
-        self.atlas = BrainGlobeAtlas(ATLAS_NAME)
+        self.atlas = atlas if atlas is not None else BrainGlobeAtlas(ATLAS_NAME)
         self.annotation = np.asarray(self.atlas.annotation)
         self.resolution_um = tuple(float(x) for x in self.atlas.resolution)
         self.shape = self.annotation.shape
@@ -458,7 +461,7 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
         self.plotter.clear()
         for acronym in ["root", "grey", "CH", "CTX", "HPF"]:
             try:
-                mesh = trimesh.load(self.atlas.meshfile_from_structure(acronym), force="mesh")
+                mesh = load_atlas_mesh(self.atlas, acronym)
                 self.reference_actor = self.plotter.add_mesh(
                     pv.wrap(mesh),
                     color="#d8d8d8",
@@ -481,7 +484,7 @@ class MeshPainterWindow(QtWidgets.QMainWindow):
                 self.active_area = acronym
             return True
         try:
-            tri_mesh = trimesh.load(self.atlas.meshfile_from_structure(acronym), force="mesh")
+            tri_mesh = load_atlas_mesh(self.atlas, acronym)
             sid = self._structure_id(acronym)
             region = RegionMesh(
                 acronym=acronym,

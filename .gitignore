@@ -13,3 +13,9 @@ projects/*
 !projects/.gitkeep
 .DS_Store
 Thumbs.db
+smoke-output/
+frozen-smoke/
+test-data/
+package-test-data/
+.pytest_cache/
+real-atlas-smoke/

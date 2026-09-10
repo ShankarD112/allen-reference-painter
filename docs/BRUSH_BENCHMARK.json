@@ -1,0 +1,18 @@
+{
+  "scope": "brush query only, synthetic 300k centroids, 100 queries; not end-to-end FPS",
+  "python": "3.12.14",
+  "platform": "Linux-6.18.35-x86_64-with-glibc2.39",
+  "index_build_ms": 122.33615199875203,
+  "results": {
+    "full_scan": {
+      "median_ms": 7.801922500220826,
+      "p95_ms": 12.303492248884139
+    },
+    "spatial_index": {
+      "median_ms": 0.009574499927111901,
+      "p95_ms": 0.04124005063204093
+    }
+  },
+  "median_speedup": 814.8647511217054,
+  "equivalence": "PASS"
+}
