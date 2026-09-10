@@ -2,11 +2,18 @@
 from __future__ import annotations
 import argparse
 import logging
+import os
 from pathlib import Path
 import sys
 
 
 def main():
+    # Windows windowed executables and pythonw have no console streams.
+    # Third-party download progress (tqdm/fsspec) still writes to stderr.
+    # Application diagnostics continue to use the rotating log file.
+    for stream in ('stdout', 'stderr'):
+        if getattr(sys, stream) is None:
+            setattr(sys, stream, open(os.devnull, 'w', encoding='utf-8'))
     parser = argparse.ArgumentParser(description='Allen Reference Painter desktop')
     parser.add_argument('--demo',action='store_true',help='Open synthetic offline practice data; not Allen anatomy')
     parser.add_argument('--self-test',action='store_true',help='Run offline packaged GUI smoke test and exit')
