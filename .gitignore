@@ -19,3 +19,10 @@ test-data/
 package-test-data/
 .pytest_cache/
 real-atlas-smoke/
+
+mac-*-smoke/
+mac-test-data/
+*.p12
+*.pfx
+*.key
+*.mobileprovision

@@ -4,6 +4,7 @@ from qtpy.QtGui import QKeySequence, QShortcut
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from pyvistaqt import QtInteractor
+from .region_search import RegionSearchModel
 from .app import CELL_UNIT_OPTIONS, NONE_LABEL, SINGLE_COLOR_LABEL
 
 STYLE = '''
@@ -16,7 +17,7 @@ QPushButton:hover { background: #344b69; border-color: #67e8d0; }
 QPushButton:checked { background: #17695f; border-color: #67e8d0; }
 QPushButton:disabled { color: #65738a; background: #1a2436; }
 QPushButton#primary { background: #16685d; border-color: #43c4b1; font-weight: 600; }
-QLineEdit, QComboBox, QTableView { background: #0b1221; border: 1px solid #34435b; border-radius: 5px; padding: 6px; selection-background-color: #17695f; }
+QLineEdit, QSpinBox, QListView, QComboBox, QTableView { background: #0b1221; border: 1px solid #34435b; border-radius: 5px; padding: 6px; selection-background-color: #17695f; }
 QTabWidget::pane { border: 0; }
 QTabBar::tab { padding: 10px 8px; background: #172237; color: #a7b7d0; }
 QTabBar::tab:selected { background: #253b50; color: #7ce9d6; border-bottom: 2px solid #7ce9d6; }
@@ -24,6 +25,9 @@ QHeaderView::section { background: #233149; border: 0; padding: 5px; }
 QTableView { alternate-background-color: #172237; }
 QSlider::groove:horizontal { background: #34435b; height: 4px; border-radius: 2px; }
 QSlider::handle:horizontal { background: #7ce9d6; width: 12px; margin: -5px 0; border-radius: 6px; }
+QListView::item { padding: 9px 5px; border-bottom: 1px solid #233149; }
+QListView::item:selected { background: #17695f; color: white; }
+QSlider::sub-page:horizontal { background: #43c4b1; border-radius: 2px; }
 QScrollArea { border: 0; }
 QToolTip { background: #25334b; color: white; border: 1px solid #7ce9d6; }
 '''
@@ -106,11 +110,26 @@ def build_workspace(w):
     regions = page('1 Regions')
     hint(regions, 'Find a brain region by name or acronym. Load it, then switch to Paint.')
     w.region_search = QtWidgets.QLineEdit(placeholderText='Search DEMO to load the practice region' if w._is_demo else 'Search regions, e.g. ENT or hippocampus')
-    w.region_search.textChanged.connect(w._filter_region_picker)
+    w.region_search.setClearButtonEnabled(True)
+    w._region_search_timer = QtCore.QTimer(w)
+    w._region_search_timer.setSingleShot(True)
+    w._region_search_timer.setInterval(120)
+    w._region_search_timer.timeout.connect(lambda: w._filter_region_picker(w.region_search.text()))
+    w.region_search.textChanged.connect(lambda _: w._region_search_timer.start())
     w.region_search.returnPressed.connect(w._load_selected_region)
     regions.addWidget(w.region_search)
-    w.region_picker = QtWidgets.QComboBox()
+    w.region_picker = QtWidgets.QListView()
+    w.region_picker.setAccessibleName('Matching brain regions')
+    w.region_picker.setUniformItemSizes(True)
+    w.region_picker.setMinimumHeight(150)
+    w.region_picker.setMaximumHeight(230)
+    w.region_search_model = RegionSearchModel(w.all_region_labels, w.region_picker)
+    w.region_picker.setModel(w.region_search_model)
+    w.region_picker.activated.connect(w._load_selected_region)
     regions.addWidget(w.region_picker)
+    w.region_result_count = QtWidgets.QLabel()
+    w.region_result_count.setObjectName('hint')
+    regions.addWidget(w.region_result_count)
     button(regions, 'load_region_button', 'Load region', w._load_selected_region, True)
     w.region_table = QtWidgets.QTableWidget(0, 4)
     w.region_table.setHorizontalHeaderLabels(['Show', 'Area', 'Name', 'Color'])
@@ -218,9 +237,27 @@ def build_workspace(w):
         s = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         s.setRange(0,w.shape[axis]-1)
         s.setAccessibleName(f'{plane} slice')
+        s.setMinimumHeight(24)
+        s.setTickPosition(QtWidgets.QSlider.TicksBelow)
+        s.setTickInterval(max(1, (w.shape[axis]-1)//4))
+        s.setPageStep(max(1, w.shape[axis]//20))
         s.valueChanged.connect(w._on_slice_changed)
         setattr(w, f'{plane}_slider',s)
-        right_layout.addWidget(s)
+        position_row = QtWidgets.QHBoxLayout()
+        position_row.addWidget(s, 1)
+        index = QtWidgets.QSpinBox()
+        index.setRange(0, w.shape[axis]-1)
+        index.setPrefix('Slice ')
+        index.setAccessibleName(f'{plane} exact slice index')
+        index.setToolTip('Zero-based atlas slice index. Arrow keys step one slice.')
+        index.valueChanged.connect(s.setValue)
+        s.valueChanged.connect(index.setValue)
+        setattr(w, f'{plane}_index', index)
+        position_row.addWidget(index)
+        right_layout.addLayout(position_row)
+        limits = QtWidgets.QLabel(f'0 µm  →  {(w.shape[axis]-1)*w.resolution_um[axis]:,.0f} µm · atlas origin')
+        limits.setObjectName('hint')
+        right_layout.addWidget(limits)
         fig = Figure(figsize=(4,3),dpi=90)
         canvas = FigureCanvasQTAgg(fig)
         canvas.setMinimumSize(160,150)
@@ -243,8 +280,8 @@ def build_workspace(w):
     check(options_layout,'sagittal_cells_2d_checkbox','Sagittal cells',True,w._update_slice_views)
     check(options_layout,'cell_heatmap_2d_checkbox','Match 3D heatmap colors',True,w._heatmap_changed)
     slider(options_layout,'slice_thickness_slider','Cell / ROI slab thickness (µm)',25,1000,250,w._update_slice_views)
-    check(options_layout,'show_coronal_plane_checkbox','Show coronal plane in 3D',False,w._update_slice_planes)
-    check(options_layout,'show_sagittal_plane_checkbox','Show sagittal plane in 3D',False,w._update_slice_planes)
+    check(options_layout,'show_coronal_plane_checkbox','Show coronal plane in 3D',True,w._update_slice_planes)
+    check(options_layout,'show_sagittal_plane_checkbox','Show sagittal plane in 3D',True,w._update_slice_planes)
     slider(options_layout,'plane_opacity_slider','3D slice plane opacity (%)',1,60,12,w._update_slice_planes)
     w.cell_colorbar_title = QtWidgets.QLabel('Cell colors')
     right_layout.addWidget(w.cell_colorbar_title)
@@ -258,6 +295,18 @@ def build_workspace(w):
     splitter.setCollapsible(1,False)
     w.status = w.statusBar()
     w.shortcuts = []
+    def move_result(delta):
+        w._region_search_timer.stop()
+        w._filter_region_picker(w.region_search.text())
+        count = w.region_search_model.rowCount()
+        if count:
+            row = max(0, min(count-1, w.region_picker.currentIndex().row()+delta))
+            w.region_picker.setCurrentIndex(w.region_search_model.index(row, 0))
+    for key, delta in [('Down', 1), ('Up', -1)]:
+        shortcut = QShortcut(QKeySequence(key), w.region_search)
+        shortcut.setContext(QtCore.Qt.WidgetShortcut)
+        shortcut.activated.connect(lambda d=delta: move_result(d))
+        w.shortcuts.append(shortcut)
     for key, callback in [('Ctrl+Z',w._undo),('Ctrl+Shift+Z',w._redo),('Ctrl+O',w._load_cells_dialog),('Ctrl+S',w._save_scene_outputs),('Escape',lambda:w._set_mode('navigate'))]:
         shortcut = QShortcut(QKeySequence(key),w)
         shortcut.activated.connect(callback)

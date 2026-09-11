@@ -22,6 +22,20 @@ def exercise_window(window, destination=None):
     mesh = load_atlas_mesh(window.atlas, area)
     centers = np.asarray(mesh.triangles_center)
     window._region_loaded((area,mesh,centers,FaceIndex(centers)))
+    # Selecting a lower result must win over the first textual match.
+    window.region_search.setText('')
+    window._filter_region_picker('')
+    row = next(i for i in range(window.region_search_model.rowCount())
+               if window.region_search_model.index(i, 0).data(QtCore.Qt.UserRole) == area)
+    window.region_picker.setCurrentIndex(window.region_search_model.index(row, 0))
+    window._load_selected_region()  # already loaded; must select exactly this area
+    assert window.active_area == area
+    window.region_search.setText('no_such_brain_region_123')
+    window._filter_region_picker(window.region_search.text())
+    assert not window.load_region_button.isEnabled()
+    assert window.region_search_model.rowCount() == 0
+    window.region_search.clear()
+    window._filter_region_picker('')
     window._set_mode('paint')
     region = window.regions[area]
     point = centers[len(centers)//3]
@@ -89,6 +103,16 @@ def exercise_window(window, destination=None):
     window.coronal_slider.setValue(min(slice_x+1,window.shape[0]-1))
     window._flush_slices()
     assert window.coronal_fig.axes[0] is axes, 'Slice update rebuilt axes'
+    for plane, axis in [('coronal', 0), ('sagittal', 2)]:
+        control = getattr(window, f'{plane}_index')
+        control.setValue(window.shape[axis]-1)
+        assert getattr(window, f'{plane}_slider').value() == window.shape[axis]-1
+        control.setValue(window.shape[axis]//2)
+    window._flush_slices()
+    assert window._plane_actors['coronal'].GetVisibility()
+    assert window._plane_actors['sagittal'].GetVisibility()
+    line = window.coronal_fig.axes[0]._linked_slice_line
+    assert line.get_xdata()[0] == window._index_to_um(window.sagittal_slider.value(), 2)
     window._set_mode('navigate')
     app.processEvents()
     window.grab().save(str(folder/'workspace.png'))
@@ -108,5 +132,5 @@ def exercise_window(window, destination=None):
     window._clear_cells()
     assert window.cell_layer is None
     window._dirty = False
-    (folder/'smoke-result.json').write_text(json.dumps({'status':'PASS','checks':['launch','region load','paint and symmetry','erase','undo/redo','camera preservation','actor reuse','CSV/TSV/TXT/XLSX readers','cell units','cell selection','numeric heatmaps','slice axes reuse','PNG screenshots','portable ROI validation','cell export coordinates','clear cells'],'atlas':manifest['atlas']},indent=2))
+    (folder/'smoke-result.json').write_text(json.dumps({'status':'PASS','checks':['launch','ranked mesh search and exact selection','linked slice controls and locator planes','region load','paint and symmetry','erase','undo/redo','camera preservation','actor reuse','CSV/TSV/TXT/XLSX readers','cell units','cell selection','numeric heatmaps','slice axes reuse','PNG screenshots','portable ROI validation','cell export coordinates','clear cells'],'atlas':manifest['atlas']},indent=2))
     return folder

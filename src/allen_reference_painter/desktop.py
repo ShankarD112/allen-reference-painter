@@ -122,17 +122,24 @@ class PainterWindow(ModernMeshPainterWindow):
         job = self.sender()
         self._jobs.pop(job.name, None)
         job.deleteLater()
-        self.load_region_button.setEnabled(True)
+        self._filter_region_picker(self.region_search.text())
         self.load_cells_button.setEnabled(True)
 
     def _error(self, message):
         self._update_status(f'Could not complete action: {message}')
         QtWidgets.QMessageBox.warning(self, 'Action needs attention', message)
 
-    def _load_selected_region(self):
-        acronym = self._resolve_region_from_text(self.region_search.text())
-        if acronym is None:
-            acronym = self.region_picker.currentText().split(' - ', 1)[0]
+    def _filter_region_picker(self, text):
+        if self.region_search_model.search(text):
+            self.region_picker.setCurrentIndex(self.region_search_model.index(0, 0))
+        count = self.region_search_model.rowCount()
+        self.region_result_count.setText(f'{count:,} matching regions · select a result to load' if count else 'No matches. Try a shorter name or acronym.')
+        self.load_region_button.setEnabled(count > 0 and 'Loading region' not in self._jobs)
+
+    def _load_selected_region(self, *_args):
+        self._region_search_timer.stop()
+        self._filter_region_picker(self.region_search.text())
+        acronym = self.region_picker.currentIndex().data(QtCore.Qt.UserRole)
         if not acronym:
             self._update_status('No matching region. Try an acronym such as ENT or CA1.')
             return
@@ -395,8 +402,11 @@ class PainterWindow(ModernMeshPainterWindow):
         self.plotter.render()
 
     def _on_slice_changed(self, *args):
+        for plane, axis in [('coronal', 0), ('sagittal', 2)]:
+            index = getattr(self, f'{plane}_slider').value()
+            getattr(self, f'{plane}_label').setText(
+                f'{plane.title()} · {"AP" if axis == 0 else "ML"} {self._index_to_um(index, axis):,.0f} µm · {index}/{self.shape[axis]-1}')
         self._update_slice_views()
-        self._update_slice_planes()
 
     def _update_slice_views(self):
         if hasattr(self, '_slice_timer'):
@@ -413,11 +423,12 @@ class PainterWindow(ModernMeshPainterWindow):
             return
         for plane, axis in [('coronal',0),('sagittal',2)]:
             self._draw_slice(plane,axis)
+        self._update_slice_planes()
 
     def _draw_slice(self, plane, axis):
         index = getattr(self, f'{plane}_slider').value()
         coord = self._index_to_um(index, axis)
-        getattr(self, f'{plane}_label').setText(f'{plane.title()} · {"AP" if axis==0 else "ML"} {coord:,.0f} µm · slice {index}')
+        getattr(self, f'{plane}_label').setText(f'{plane.title()} · {"AP" if axis==0 else "ML"} {coord:,.0f} µm · {index}/{self.shape[axis]-1}')
         style_key = tuple((r.acronym,r.visible,r.color) for r in self.regions.values())
         key = (plane,index,style_key)
         rgb = self._slice_cache.get(key)
@@ -450,6 +461,15 @@ class PainterWindow(ModernMeshPainterWindow):
             for collection in list(ax.collections):
                 collection.remove()
             self._slice_artists[plane] = (ax,im,key)
+        other_axis = 2 if axis == 0 else 0
+        other = 'sagittal' if axis == 0 else 'coronal'
+        position = self._index_to_um(getattr(self, f'{other}_slider').value(), other_axis)
+        line = getattr(ax, '_linked_slice_line', None)
+        if line is None:
+            line = ax.axvline(position, color='#00d7ff' if axis == 0 else '#ffd400', linewidth=1.2, linestyle='--')
+            ax._linked_slice_line = line
+        else:
+            line.set_xdata([position, position])
         self._overlay_points(ax,plane,coord)
         getattr(self,f'{plane}_canvas').draw_idle()
 
