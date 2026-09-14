@@ -93,3 +93,27 @@ The folder build avoids unpacking a large scientific runtime on every launch. Bu
 Work on a feature branch, log decisions and verification, and preserve the coordinate-aware export contract. Follow [the existing modular refactor plan](docs/MODULAR_REFACTOR.md), [coordinate validation](docs/EXPORT_COORDINATE_VALIDATION.md) and [release checklist](docs/RELEASE_CHECKLIST.md). Do not merge a major UI/refactor until launch, region loading, painting, cell import/selection, 2D/3D updates and screenshots pass.
 
 Implementation modules include `desktop.py` (coordination), `workspace_ui.py` (layout), `spatial.py` (brush index), `jobs.py` (background work), `cell_table.py` (virtual table), `exporting.py` (portable exports), and `runtime.py` (paths/logs). Legacy scientific behavior is reused while the migration proceeds.
+
+## macOS and navigation update (0.3)
+
+Mesh search now uses a visible results list with exact acronyms ranked first,
+multiword matching, a result count, and no 250-result limit. Select a result and
+choose Load region (or press Enter in the list). Up/Down in the search field
+moves through results. Loading respects your selected row.
+
+Both slice views have a slider and exact zero-based slice input. Position labels
+show AP/ML microns from the atlas origin. Dashed lines show the other slice's
+intersection, and matching yellow coronal / cyan sagittal planes are visible in
+3D by default. Hide them in Slice display options when desired. Slider updates
+are coalesced to avoid rendering on every input event.
+
+The desktop workflow now builds separate macOS **Apple Silicon (arm64)** and
+**Intel (x86_64)** apps on macOS 15 runners. Download the appropriate development
+artifact after its tests pass, extract the inner ZIP, and move
+`AllenReferencePainter.app` to Applications. Python is bundled. These development
+builds are not Developer ID signed or notarized and are not yet trusted public
+releases. Target macOS 15 or newer until older versions have been validated.
+
+See [trusted distribution](docs/TRUSTED_DISTRIBUTION.md) for signing, notarization,
+credentials, and release verification. No security-warning bypass is part of the
+installation workflow.

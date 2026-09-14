@@ -1,4 +1,4 @@
-name: Desktop validation and Windows build
+name: Desktop validation and Windows/macOS builds
 on:
   push:
     branches: [main]
@@ -119,4 +119,57 @@ jobs:
             frozen-smoke/
             frozen-real-smoke/
             package-test-data/logs/
+            build/AllenReferencePainter/warn-AllenReferencePainter.txt
+
+  macos-app:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            arch: arm64
+          - os: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      QT_API: pyside6
+      ALLEN_PAINTER_DATA_DIR: ${{ github.workspace }}/mac-test-data
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m unittest discover -s tests -v
+      - name: Source Mac desktop test
+        run: python -m allen_reference_painter.main --self-test --self-test-output mac-source-smoke
+      - run: python -m PyInstaller --noconfirm packaging/AllenReferencePainter.spec
+      - name: Test the actual Mac app with synthetic and Allen data
+        run: |
+          dist/AllenReferencePainter.app/Contents/MacOS/AllenReferencePainter --self-test --self-test-output mac-frozen-smoke
+          dist/AllenReferencePainter.app/Contents/MacOS/AllenReferencePainter --self-test-real --self-test-output mac-real-smoke
+          python -c "import json; r=json.load(open('mac-real-smoke/smoke-result.json')); assert r['status']=='PASS' and r['atlas']=='allen_mouse_25um'"
+      - name: Archive app preserving executable permissions and symlinks
+        run: |
+          python -m pip freeze > resolved-dependencies.txt
+          ditto -c -k --sequesterRsrc --keepParent dist/AllenReferencePainter.app AllenReferencePainter-macOS-${{ matrix.arch }}.zip
+          shasum -a 256 AllenReferencePainter-macOS-${{ matrix.arch }}.zip > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AllenReferencePainter-macOS-${{ matrix.arch }}-development
+          path: |
+            AllenReferencePainter-macOS-${{ matrix.arch }}.zip
+            SHA256SUMS.txt
+            resolved-dependencies.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macOS-${{ matrix.arch }}-diagnostics
+          path: |
+            mac-source-smoke/
+            mac-frozen-smoke/
+            mac-real-smoke/
+            mac-test-data/logs/
             build/AllenReferencePainter/warn-AllenReferencePainter.txt

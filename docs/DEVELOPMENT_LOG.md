@@ -103,3 +103,30 @@ Inspected the upstream `brainglobe_atlasapi/core.py` and `structure_class.py` im
 - CI run 34412215929: all 13 tests and both source GUI workflows pass, including the expanded cell file readers; real Allen source integration passes. Wasmtime now loads in the executable. The next frozen failure is NGFF 0.36.2 calling inspect.getsource(dask.array.core.to_zarr). Verified the exact upstream tag py-v0.36.2 and added a focused PyInstaller hook preserving that module source (pyz+py), following https://pyinstaller.org/en/stable/hooks.html#hook-global-variables. Added real Allen integration to the executable gate as well as the synthetic workflow, so download/decompression and coordinate paths are exercised in the distributed runtime.
 
 - 2026-09-10: Resumed from run 34413004766. All source gates pass and the actual Windows executable now passes its complete synthetic GUI workflow, including spreadsheet imports. Its first real atlas download fails in fsspec/tqdm because a windowed executable has sys.stderr=None. Applied the documented PyInstaller windowed-stream fallback at launcher startup (only absent streams), preserving application file logging. See https://pyinstaller.org/en/stable/common-issues-and-pitfalls.html#sys-stdin-sys-stdout-and-sys-stderr-in-noconsole-windowed-applications-windows-only. The real-atlas executable gate remains required.
+
+
+## 2026-09-11 — macOS, mesh search, slice location (0.3)
+
+- User reports successful first-use Windows app and merged PR #2; requests Mac
+  distribution, trusted downloads, search glitch corrections and clear slice sliders.
+- Started `feat/macos-search-slice-navigation` from merged main 24e71d0.
+- Root cause: legacy text resolver ignores the selected dropdown row and chooses
+  the first partial textual match. Dropdown rebuilds synchronously on every key
+  and caps results at 250. Replaced it with a pre-indexed native list model,
+  debounced multiword matching, exact-acronym ranking, explicit selection, empty
+  state, keyboard movement and no arbitrary result cap. Same query preserves selection.
+- Existing slice sliders were inconspicuous. Added exact index inputs, explicit
+  bounds/coordinates, linked 2D locator lines and default-visible colored 3D planes.
+  Coalesced plane rendering with slice updates; preserves existing mesh actors.
+- Kept Qt/VTK: the reported bug is selection logic, not evidence requiring a full
+  language/rendering rewrite. Uses native controls and compiled mesh rendering.
+- Added macOS 15 Apple Silicon and Intel build/test jobs, .app packaging, preserved
+  ZIP permissions/symlinks, synthetic and real-atlas executable tests and diagnostics.
+- Added Developer ID build identity support, notarization/stapling/assessment script,
+  Windows certificate-store signing/verification helper, and trusted-distribution
+  instructions. No signing credentials are available or embedded; CI builds remain
+  development artifacts. Signing/notarization have not been performed.
+- Added model regression tests and executable smoke coverage for selected result,
+  no results, exact slice controls, linked locator lines and 3D plane visibility.
+- Local compile check passed. Platform validation results are recorded in the new PR
+  and its linked workflow runs; do not infer a successful Mac build from this entry.
