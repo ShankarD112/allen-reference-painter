@@ -130,3 +130,23 @@ Inspected the upstream `brainglobe_atlasapi/core.py` and `structure_class.py` im
   no results, exact slice controls, linked locator lines and 3D plane visibility.
 - Local compile check passed. Platform validation results are recorded in the new PR
   and its linked workflow runs; do not infer a successful Mac build from this entry.
+
+## Browser migration — 2026-09-30
+
+Added a separate Vite/Three.js browser workspace at the repository root, with
+Vercel static build configuration and browser CI. Reused the browser-first
+approach of Brain Party, but deliberately retained the painter's own exact
+BrainGlobe geometry and analysis-export contract instead of substituting game
+meshes. Python desktop modules are unchanged.
+
+Packaged normalized BrainGlobe 3.1 atlas meshes (855 available) and original
+coronal/sagittal annotation slices. One upstream missing mesh (`RSPd4`) is
+explicitly unavailable. Added surface painting, mirroring, history, cell import,
+linked views, portable ZIP exports and editable project roundtrips.
+
+Local production build and six scientific-data tests pass. A real ENT ROI
+passes the existing Python export validator. Interactive browser checks must
+be assessed through the browser CI report; the development execution runtime
+cannot run agent-browser because `/proc/self/exe` is unavailable.
+
+Details, deployment instructions and limitations: [WEB_APP.md](WEB_APP.md).

@@ -1,0 +1,3 @@
+# Build-time only; visitors do not install Python.
+brainglobe-atlasapi==3.0.2
+numpy==2.3.5

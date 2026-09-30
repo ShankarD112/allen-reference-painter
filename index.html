@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <meta name="theme-color" content="#0d1b2b" />
+    <meta
+      name="description"
+      content="Explore the Allen mouse atlas, paint surface ROIs, compare cells and export atlas-space data in your browser."
+    />
+    <title>Allen Reference Painter</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%230d1b2b'/%3E%3Cpath d='M10 29L20 10L30 29M14 22H26' stroke='%235ee5ce' stroke-width='3' fill='none'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="./" aria-label="Allen Reference Painter home"
+        ><span class="brand-icon">A</span
+        ><span>Reference Painter<small>ALLEN MOUSE ATLAS</small></span></a
+      >
+      <div class="header-note">Anatomy, in your hands.</div>
+      <span class="version">WEB PREVIEW</span><button id="help">Help</button>
+    </header>
+    <main class="workspace">
+      <aside class="sidebar">
+        <nav class="tabs" aria-label="Workspace tools">
+          <button data-tab="regions" aria-selected="true">Regions</button
+          ><button data-tab="paint" aria-selected="false">Paint</button
+          ><button data-tab="cells" aria-selected="false">Cells</button
+          ><button data-tab="export" aria-selected="false">Export</button>
+        </nav>
+        <div class="panel" id="panel-regions">
+          <p class="eyebrow">01 / BUILD YOUR SCENE</p>
+          <h1>Find your region.</h1>
+          <label for="search">Search the atlas</label
+          ><input
+            id="search"
+            type="search"
+            placeholder="ENT, hippocampus, 918…"
+            autocomplete="off"
+          />
+          <p class="muted" id="search-count">Loading atlas index…</p>
+          <div
+            id="search-results"
+            class="results"
+            aria-label="Region search results"
+          ></div>
+          <div class="section-heading">
+            <h2>In your scene</h2>
+            <span id="region-count">0</span>
+          </div>
+          <div id="loaded-regions">
+            <p class="muted">Choose a region above to load its surface.</p>
+          </div>
+          <div class="field-row">
+            <label for="shell">Reference brain</label
+            ><input id="shell" type="checkbox" checked />
+          </div>
+          <label for="opacity"
+            >Active region opacity
+            <output id="opacity-value">80%</output></label
+          ><input id="opacity" type="range" min="10" max="100" value="80" />
+        </div>
+        <div class="panel" id="panel-paint" hidden>
+          <p class="eyebrow">02 / DEFINE A SURFACE ROI</p>
+          <h1>Make your mark.</h1>
+          <p class="muted">
+            Paint on the active region. Your brush selects original mesh faces.
+          </p>
+          <div class="tool-group" aria-label="Paint tools">
+            <button data-mode="navigate" aria-pressed="true">Navigate</button
+            ><button data-mode="paint" aria-pressed="false">Paint</button
+            ><button data-mode="erase" aria-pressed="false">Erase</button>
+          </div>
+          <label for="radius"
+            >Brush radius <output id="radius-value">250 µm</output></label
+          ><input
+            id="radius"
+            type="range"
+            min="25"
+            max="1000"
+            step="25"
+            value="250"
+          />
+          <div class="field-row">
+            <label for="paint-color">Paint color</label
+            ><input id="paint-color" type="color" value="#ff795f" />
+          </div>
+          <div class="field-row">
+            <label for="mirror">Mirror across ML midline</label
+            ><input id="mirror" type="checkbox" />
+          </div>
+          <div class="field-row">
+            <label for="mirror-color">Mirror color</label
+            ><input id="mirror-color" type="color" value="#55d9e7" />
+          </div>
+          <p class="note">Symmetry uses the atlas midline at ML 5,700 µm.</p>
+          <div class="button-row">
+            <button id="undo" disabled>Undo</button
+            ><button id="redo" disabled>Redo</button>
+          </div>
+          <button id="clear-roi" class="wide">Clear active ROI</button>
+          <div class="metric">
+            <strong id="face-count">0</strong
+            ><span>selected surface faces</span>
+          </div>
+          <p class="muted">
+            Esc to navigate · Ctrl/⌘ Z to undo<br />Orbit with left drag; pan
+            with right drag; scroll to zoom.
+          </p>
+        </div>
+        <div class="panel" id="panel-cells" hidden>
+          <p class="eyebrow">03 / COMPARE YOUR DATA</p>
+          <h1>Bring in your cells.</h1>
+          <p class="muted">
+            Files are processed in this browser. Coordinates are measured from
+            the BrainGlobe atlas origin, not bregma.
+          </p>
+          <label for="units">Source coordinate units</label
+          ><select id="units">
+            <option value="">Choose units…</option>
+            <option value="um">Micrometres (µm)</option>
+            <option value="mm">Millimetres (mm)</option>
+            <option value="voxel">Voxel indices (25 µm)</option></select
+          ><label class="upload" for="cell-file"
+            ><strong>Import cell table</strong><span>CSV, TSV, TXT or XLSX</span
+            ><input
+              id="cell-file"
+              type="file"
+              accept=".csv,.tsv,.txt,.xlsx" /></label
+          ><button id="example-cells" class="wide">
+            Load example cells (mm)
+          </button>
+          <div id="cell-controls" hidden>
+            <p id="cell-summary" class="note"></p>
+            <label for="cell-label">Cell labels</label
+            ><select id="cell-label"></select
+            ><label for="cell-color">Color by value</label
+            ><select id="cell-color"></select>
+            <div id="color-legend" hidden>
+              <div class="gradient"></div>
+              <div id="color-range" class="field-row"></div>
+            </div>
+            <label for="cell-filter">Filter rows</label
+            ><input
+              id="cell-filter"
+              type="search"
+              placeholder="Match any column…"
+            />
+            <div class="button-row">
+              <button id="show-filtered">Show matching</button
+              ><button id="hide-filtered">Hide matching</button>
+            </div>
+            <div id="cell-table" class="cell-table"></div>
+          </div>
+        </div>
+        <div class="panel" id="panel-export" hidden>
+          <p class="eyebrow">04 / TAKE IT WITH YOU</p>
+          <h1>Keep your work.</h1>
+          <p class="muted">
+            Download meshes and face tables with atlas coordinates and
+            provenance.
+          </p>
+          <button id="export-roi" class="primary wide">
+            Export active ROI (.zip)</button
+          ><button id="export-scene" class="wide">
+            Export full scene (.zip)
+          </button>
+          <p class="note">
+            Includes PLY geometry, face IDs, centroid CSVs and atlas metadata.
+            Scene exports include cell metadata and visibility.
+          </p>
+          <h2>Editable project</h2>
+          <button id="save-project" class="wide">Save project (.json)</button
+          ><label class="upload compact" for="project-file"
+            ><strong>Open saved project</strong
+            ><input id="project-file" type="file" accept=".json"
+          /></label>
+          <p class="muted">
+            Save a project before closing the tab. Projects retain painting and
+            cell data.
+          </p>
+          <h2>Figures</h2>
+          <button id="screenshot" class="wide">Download 3D view (.png)</button
+          ><button id="slice-screenshot" class="wide">
+            Download slices (.png)
+          </button>
+        </div>
+        <div class="sidebar-footer">
+          <span class="local-icon">◇</span
+          ><span>Local files. No account needed.</span>
+        </div>
+      </aside>
+      <section class="stage" aria-label="3D atlas workspace">
+        <div class="stage-top">
+          <div>
+            <p class="eyebrow">3D ATLAS WORKSPACE</p>
+            <h2 id="active-title">Loading reference atlas</h2>
+            <p id="active-subtitle">Allen mouse · 25 µm · BrainGlobe 3.1</p>
+          </div>
+          <span id="mode-badge">NAVIGATE</span>
+        </div>
+        <div
+          id="viewer"
+          aria-label="Interactive 3D brain. Drag to orbit and scroll to zoom."
+          tabindex="0"
+        ></div>
+        <div class="stage-bottom">
+          <span id="hover-info">Select a region to begin</span>
+          <div class="camera-tools" aria-label="Camera views">
+            <button data-view="3d">3D</button
+            ><button data-view="coronal">Coronal</button
+            ><button data-view="sagittal">Sagittal</button
+            ><button data-view="dorsal">Dorsal</button
+            ><button id="focus">Focus</button>
+          </div>
+        </div>
+        <div class="loading" id="loading">
+          <span class="spinner"></span
+          ><strong id="loading-message">Preparing the atlas…</strong
+          ><button id="retry" hidden>Retry</button>
+        </div>
+      </section>
+      <aside class="slices">
+        <div class="slice-header">
+          <div>
+            <p class="eyebrow">LINKED REFERENCE</p>
+            <h2>Anatomical slices</h2>
+          </div>
+          <label class="small-check"
+            ><input id="planes" type="checkbox" checked /> 3D planes</label
+          >
+        </div>
+        <article class="slice-card">
+          <div class="section-heading">
+            <h3>Coronal</h3>
+            <button id="find-coronal" class="small-button">Find region</button>
+          </div>
+          <canvas id="coronal" aria-label="Coronal annotation slice"></canvas>
+          <div class="slice-depth">
+            <label for="coronal-depth">AP</label
+            ><input
+              id="coronal-depth"
+              type="range"
+              min="0"
+              max="527"
+              value="300"
+            /><input
+              id="coronal-index"
+              type="number"
+              min="0"
+              max="527"
+              value="300"
+              aria-label="Coronal slice index"
+            />
+          </div>
+          <p id="coronal-position" class="slice-position">
+            7,500 µm · slice 300
+          </p>
+        </article>
+        <article class="slice-card">
+          <div class="section-heading">
+            <h3>Sagittal</h3>
+            <button id="find-sagittal" class="small-button">Find region</button>
+          </div>
+          <canvas id="sagittal" aria-label="Sagittal annotation slice"></canvas>
+          <div class="slice-depth">
+            <label for="sagittal-depth">ML</label
+            ><input
+              id="sagittal-depth"
+              type="range"
+              min="0"
+              max="455"
+              value="170"
+            /><input
+              id="sagittal-index"
+              type="number"
+              min="0"
+              max="455"
+              value="170"
+              aria-label="Sagittal slice index"
+            />
+          </div>
+          <p id="sagittal-position" class="slice-position">
+            4,250 µm · slice 170
+          </p>
+        </article>
+        <p id="slice-hover" class="note">
+          Original 25 µm annotation. Click a slice to position the crosshair.
+        </p>
+        <div class="slice-key">
+          <span><i class="roi-dot"></i> Painted face centroids</span
+          ><span><i class="cell-dot"></i> Visible cells ±50 µm</span>
+        </div>
+      </aside>
+    </main>
+    <footer class="statusbar">
+      <span id="status" role="status" aria-live="polite">Loading atlas…</span
+      ><span>AP · DV · ML / µm</span>
+    </footer>
+    <dialog id="help-dialog">
+      <button id="close-help" class="dialog-close" aria-label="Close help">
+        ×
+      </button>
+      <p class="eyebrow">REFERENCE PAINTER</p>
+      <h2>A browser workspace for your atlas.</h2>
+      <ol>
+        <li>
+          <strong>Regions:</strong> search a name or acronym, then load a
+          surface.
+        </li>
+        <li>
+          <strong>Paint:</strong> choose a brush, paint a patch, and optionally
+          mirror it.
+        </li>
+        <li>
+          <strong>Cells:</strong> choose units, then import AP/DV/ML or x/y/z
+          coordinates.
+        </li>
+        <li>
+          <strong>Export:</strong> download analysis files or save an editable
+          project.
+        </li>
+      </ol>
+      <p>
+        Painting selects surface triangles; it does not create a volumetric
+        segmentation. Face IDs refer to the exact packaged BrainGlobe 3.1 mesh.
+        Coordinates use the atlas origin, not bregma.
+      </p>
+      <p>
+        All work stays in this browser unless you download and share it. Save
+        your project before leaving.
+      </p>
+      <p class="muted">
+        Independent project; not an Allen Institute product. Atlas: Wang et al.
+        (2020),
+        <a
+          href="https://doi.org/10.1016/j.cell.2020.04.007"
+          target="_blank"
+          rel="noreferrer"
+          >Cell</a
+        >. <a href="./THIRD_PARTY_NOTICES.txt">Data and code notices</a>.
+      </p>
+    </dialog>
+    <script type="module" src="/web/main.js"></script>
+  </body>
+</html>
