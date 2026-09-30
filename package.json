@@ -1,0 +1,24 @@
+{
+  "name": "allen-reference-painter-web",
+  "version": "0.4.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "npm run atlas:prepare && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test:web": "node --test web/tests/*.test.js",
+    "test:browser": "playwright test",
+    "atlas:prepare": "node scripts/prepare_web_atlas.mjs"
+  },
+  "dependencies": {
+    "fflate": "0.8.3",
+    "papaparse": "5.5.3",
+    "read-excel-file": "9.3.10",
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "vite": "8.3.1"
+  }
+}

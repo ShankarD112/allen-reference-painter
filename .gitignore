@@ -26,3 +26,11 @@ mac-test-data/
 *.pfx
 *.key
 *.mobileprovision
+
+node_modules/
+playwright-report/
+test-results/
+.vercel/
+public/data/
+.atlas-cache/
+.atlas-venv/

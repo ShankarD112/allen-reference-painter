@@ -2,6 +2,14 @@
 
 Explore the Allen mouse brain atlas, paint custom regions of interest on 3D meshes, compare cell coordinates in 3D and anatomical slices, and export atlas-space data for analysis.
 
+## Browser app — development preview
+
+A browser version is now available in this branch. Run `npm ci`, `npm run atlas:prepare`, then `npm run dev`,
+or import this repository into Vercel using the included configuration.
+It supports atlas exploration, mirrored surface painting, cell import, linked
+annotation slices, analysis exports, and editable project save/reopen.
+See [browser setup, validation and limitations](docs/WEB_APP.md).
+
 ## Desktop rebuild — development branch
 
 This branch introduces a guided workspace and replaces expensive paint/render updates. It is under validation. **A ready-to-use Windows release is not yet published.** See [development log](docs/DEVELOPMENT_LOG.md) and [release gates](docs/RELEASE_CHECKLIST.md) for what has actually been tested.
