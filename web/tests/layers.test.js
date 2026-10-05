@@ -71,3 +71,13 @@ test('3D paint uses opaque unlit overlays independent of translucent base and fo
   assert.equal(r.overlays[0].material.opacity,1);
   viewer.remove(r.id); assert.equal(viewer.scene.children.length,0);
 });
+
+test('layer-number searches do not accidentally match digits in structure IDs', async () => {
+  const { findRegions } = await import('../regions.js');
+  const one = {id:97,acronym:'ENTl1',name:'Entorhinal area, lateral part, layer 1',path:[1,2]};
+  const five = {id:115,acronym:'ENTl5',name:'Entorhinal area, lateral part, layer 5',path:[1,2]};
+  assert.deepEqual(findRegions([five,one],'Entorhinal area, lateral part, layer 1'),[one]);
+  assert.deepEqual(findRegions([five,one],'115'),[five]);
+  assert.deepEqual(findRegions([five,one],'ENT'),[one,five]);
+  assert.deepEqual(findRegions([five,one],'ENT','3'),[]);
+});

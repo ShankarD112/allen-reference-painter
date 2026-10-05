@@ -1,4 +1,5 @@
 import "./style.css";
+import { findRegions } from "./regions.js";
 import { ensureLayers, newLayer, syncPaint, snapshot, restore, surfaceBrush, modifyMask } from './paint.js';
 import { readProject, mergeProjects } from './session.js';
 import { exportHTML } from './share.js';
@@ -140,18 +141,7 @@ function renderLoaded() {
 }
 function search() {
   if (!state.manifest) return;
-  const query = $("search").value.trim().toLowerCase(),
-    terms = query.split(/\s+/).filter(Boolean);
-  const results = state.manifest.regions
-    .filter(
-      (r) =>
-        r.acronym !== "root" &&
-        terms.every((t) =>
-          `${r.acronym} ${r.name} ${r.id}`.toLowerCase().includes(t),
-        ),
-    )
-    .filter(r => !$("main-region").value || r.path.includes(Number($("main-region").value)))
-    .sort((a, b) => a.name.localeCompare(b.name) || a.acronym.localeCompare(b.acronym));
+  const results = findRegions(state.manifest.regions, $("search").value, $("main-region").value);
   filteredRegions = results;
   $("search-results").replaceChildren();
   for (const r of results) {
