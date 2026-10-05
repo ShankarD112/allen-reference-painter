@@ -125,3 +125,37 @@ releases. Target macOS 15 or newer until older versions have been validated.
 See [trusted distribution](docs/TRUSTED_DISTRIBUTION.md) for signing, notarization,
 credentials, and release verification. No security-warning bypass is part of the
 installation workflow.
+
+### Labeled web workspaces
+
+The app opens with the translucent reference brain and **Start painting** / **Upload saved work**.
+The region browser sorts by anatomical name, supports a main-region dropdown, and can load all
+matching meshes or remove the scene's meshes. Bulk loading can be stopped; loading the entire
+atlas is memory intensive, so a main-region filter is useful.
+
+Paint lives in named layers with tags, independent colors, mirrored colors and visibility.
+Layers may overlap without replacing one another. Use the connected-surface brush to avoid
+jumping to disconnected surfaces, or the spherical brush to select through nearby surfaces.
+Fill, invert, grow, shrink and smooth operate on the active layer's original triangle IDs;
+these are surface masks, not volumetric segmentations. Undo/redo includes mask operations.
+Opaque, unlit paint overlays stay visible independently of anatomical mesh opacity.
+Hover either 2D slice to read AP, DV and ML coordinates in atlas micrometres.
+The 96 example cells are synthetic demonstration data, not biological observations.
+
+Both analysis ZIP formats now contain `project.json` in addition to analysis geometry/tables.
+Upload ROI ZIPs, scene ZIPs or project JSON to resume work, or choose **Add files as separate
+paint layers** to combine multiple files. Existing web schema-2 analysis ZIPs and version-1
+JSON projects remain readable. Imported masks retain names, tags, colors, original face IDs
+and file provenance. New projects also retain camera, slices, reference visibility and cells.
+All files and mesh hashes are validated before the current workspace is replaced.
+
+**Export interactive HTML** creates a standalone, offline 3D viewer with orbit/pan/zoom,
+mesh/layer visibility controls, label filtering and cells. The viewer code and scene data are
+embedded in the file: no CDN, atlas server or account is required to view it. Share the HTML
+file directly or host it on a static web host. To continue editing, share the ZIP or JSON too.
+The offline viewer runtime is bundled by `npm run build:viewer` during build and before dev.
+
+The mask-refinement interaction follows familiar open-source sculpting tools such as
+[Blender mask grow/shrink and smoothing](https://docs.blender.org/manual/en/latest/sculpt_paint/sculpting/editing/mask.html).
+The implementation here is original JavaScript using the existing MIT-licensed Three.js
+renderer; it does not embed Blender or introduce a paid painting service.

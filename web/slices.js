@@ -36,10 +36,11 @@ export class Slices {
         if (!p || !e.labels) return;
         const sid = e.labels[p[1] * e.width + p[0]],
           r = this.ids.get(sid);
-        document.getElementById("slice-hover").textContent = r
-          ? `${r.acronym} · ${r.name}`
-          : "Outside atlas";
+        const xyz = [0, p[1] * 25, 0]; xyz[e.h] = p[0] * 25; xyz[e.axis] = e.index * 25;
+        document.getElementById("slice-hover").textContent =
+          `AP ${xyz[0]} · DV ${xyz[1]} · ML ${xyz[2]} µm · ${r ? r.acronym + ' · ' + r.name : 'Outside atlas'}`;
       };
+      e.canvas.onpointerleave = () => { document.getElementById("slice-hover").textContent = "Hover a slice for AP · DV · ML coordinates (µm)."; };
       e.canvas.onclick = (event) => {
         const p = this.point(e, event);
         if (!p) return;
@@ -192,14 +193,11 @@ export class Slices {
       );
       ctx.fill();
     };
-    for (const r of this.state.regions.values())
-      if (r.visible)
-        for (const id of r.painted)
-          dot(
-            r.centroids.slice(id * 3, id * 3 + 3),
-            r.mirrored.has(id) ? this.state.mirrorColor : this.state.paintColor,
-            1.1,
-          );
+    for (const r of this.state.regions.values()) if (r.visible)
+      for (const layer of r.layers || []) if (layer.visible) {
+        const mirrored = new Set(layer.mirrored);
+        for (const id of layer.painted) dot(r.centroids.slice(id * 3, id * 3 + 3), mirrored.has(id) ? layer.mirrorColor : layer.color, 1.3);
+      }
     for (const c of this.state.cells?.cells || [])
       if (c.visible) dot(c.xyz, this.state.cellColor(c), 2.3);
     const other = this.entries.find((a) => a !== e);

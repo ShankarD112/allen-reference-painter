@@ -1,4 +1,8 @@
 import "./style.css";
+import { findRegions } from "./regions.js";
+import { ensureLayers, newLayer, syncPaint, snapshot, restore, surfaceBrush, modifyMask } from './paint.js';
+import { readProject, mergeProjects } from './session.js';
+import { exportHTML } from './share.js';
 import Papa from "papaparse";
 import readXlsxFile from "read-excel-file/browser";
 import { loadManifest, loadMesh } from "./atlas.js";
@@ -24,6 +28,7 @@ const state = {
   mode: "navigate",
   dirty: false,
 };
+let filteredRegions = [], cancelLoad = false, bulkLoading = false;
 let viewer,
   slices,
   undo = [],
@@ -72,10 +77,12 @@ function active(id) {
     ? r.name
     : "Allen mouse · 25 µm · BrainGlobe 3.1";
   if (r) {
+    $("region-color").value = r.color;
     $("opacity").value = Math.round(r.opacity * 100);
     $("opacity-value").textContent = Math.round(r.opacity * 100) + "%";
   }
   renderLoaded();
+  renderLayers();
   syncCounts();
   slices?.refresh();
 }
@@ -126,7 +133,7 @@ function renderLoaded() {
           ? (state.regions.keys().next().value ?? null)
           : state.active,
       );
-      dirty();
+      search(); dirty();
     };
     row.append(check, choose, remove);
     list.append(row);
@@ -134,30 +141,13 @@ function renderLoaded() {
 }
 function search() {
   if (!state.manifest) return;
-  const query = $("search").value.trim().toLowerCase(),
-    terms = query.split(/\s+/).filter(Boolean);
-  const results = state.manifest.regions
-    .filter(
-      (r) =>
-        r.acronym !== "root" &&
-        terms.every((t) =>
-          `${r.acronym} ${r.name} ${r.id}`.toLowerCase().includes(t),
-        ),
-    )
-    .sort(
-      (a, b) =>
-        Number(b.acronym.toLowerCase() === query) -
-          Number(a.acronym.toLowerCase() === query) ||
-        Number(b.acronym.toLowerCase().startsWith(query)) -
-          Number(a.acronym.toLowerCase().startsWith(query)) ||
-        a.acronym.localeCompare(b.acronym),
-    );
-  $("search-count").textContent = `${results.length} matching regions`;
+  const results = findRegions(state.manifest.regions, $("search").value, $("main-region").value);
+  filteredRegions = results;
   $("search-results").replaceChildren();
   for (const r of results) {
     const button = document.createElement("button");
     button.className = "result";
-    button.disabled = !r.file || busy;
+    button.disabled = !r.file || busy || bulkLoading;
     button.setAttribute("aria-label", `Load ${r.acronym} — ${r.name}`);
     const swatch = document.createElement("span");
     swatch.className = "swatch";
@@ -176,11 +166,11 @@ function search() {
     $("search-results").append(button);
   }
 }
-async function addRegion(info) {
+async function addRegion(info, bulk = false) {
   if (busy) return;
   if (state.regions.has(info.id)) {
     active(info.id);
-    viewer.focus(info.id);
+    if (!bulk) viewer.focus(info.id);
     return;
   }
   busy = true;
@@ -188,11 +178,11 @@ async function addRegion(info) {
   status(`Loading ${info.acronym}…`);
   try {
     const r = await loadMesh(info);
+    ensureLayers(r, state.paintColor, state.mirrorColor);
     viewer.add(r);
     state.regions.set(r.id, r);
     active(r.id);
-    slices.entries.forEach((e) => slices.focus(e));
-    viewer.focus(r.id);
+    if (!bulk) { slices.entries.forEach((e) => slices.focus(e)); viewer.focus(r.id); }
     dirty();
     status(
       `${r.acronym} loaded · ${r.triangles.toLocaleString()} original mesh faces`,
@@ -202,83 +192,77 @@ async function addRegion(info) {
     search();
   }
 }
+function renderLayers() {
+  const r = state.regions.get(state.active), list = $("paint-layers");
+  list.replaceChildren();
+  for (const id of ['layer-name', 'layer-tags', 'add-layer', 'delete-layer', 'isolate-layer', 'show-layers']) $(id).disabled = !r;
+  if (!r) { $("layer-name").value = ''; $("layer-tags").value = ''; return; }
+  const selected = ensureLayers(r, state.paintColor, state.mirrorColor);
+  $("layer-name").value = selected.name; $("layer-tags").value = selected.tags;
+  $("paint-color").value = selected.color; $("mirror-color").value = selected.mirrorColor;
+  const filter = $("layer-filter").value.toLowerCase();
+  for (const layer of r.layers) {
+    if (!`${layer.name} ${layer.tags} ${layer.source || ''}`.toLowerCase().includes(filter)) continue;
+    const row = document.createElement('div'); row.className = 'layer-row' + (layer.id === selected.id ? ' active' : '');
+    const check = document.createElement('input'); check.type = 'checkbox'; check.checked = layer.visible;
+    check.setAttribute('aria-label', 'Show layer ' + layer.name);
+    check.onchange = () => { layer.visible = check.checked; refreshPaint(r); };
+    const button = document.createElement('button');
+    button.textContent = layer.name + (layer.tags ? ' · ' + layer.tags : '') + (layer.source ? ' — ' + layer.source : '');
+    button.style.borderLeft = `5px solid ${layer.color}`;
+    button.onclick = () => { r.activeLayer = layer.id; renderLayers(); dirty(); };
+    row.append(check, button); list.append(row);
+  }
+}
+function refreshPaint(r) { syncPaint(r); viewer.update(r); slices.refresh(); syncCounts(); dirty(); }
 function begin() {
   const r = state.regions.get(state.active);
-  if (r)
-    stroke = {
-      id: r.id,
-      before: [...r.painted],
-      beforeMirror: [...r.mirrored],
-    };
+  if (r) { ensureLayers(r, state.paintColor, state.mirrorColor); stroke = { id: r.id, before: snapshot(r) }; }
 }
 function paint(hit) {
   const r = state.regions.get(state.active);
   if (!r || !r.visible) return;
-  const radius = Number($("radius").value),
-    ids = r.index.near(hit.point, radius);
-  const erase = state.mode === "erase";
-  for (const id of ids) {
-    if (erase) {
-      r.painted.delete(id);
-      r.mirrored.delete(id);
-    } else {
-      r.painted.add(id);
-      r.mirrored.delete(id);
-    }
-  }
+  const layer = ensureLayers(r, state.paintColor, state.mirrorColor);
+  if (!layer.visible) { status('Show the active paint layer before painting.'); return; }
+  const radius = Number($("radius").value);
+  const ids = $("brush-shape").value === 'surface' ? surfaceBrush(r, hit.face, hit.point, radius) : r.index.near(hit.point, radius);
+  const painted = new Set(layer.painted), mirrored = new Set(layer.mirrored), erase = state.mode === 'erase';
+  for (const id of ids) { erase ? painted.delete(id) : painted.add(id); mirrored.delete(id); }
   if ($("mirror").checked) {
-    const p = mirrorPoint(
-      hit.point,
-      (state.manifest.atlas_shape[2] * state.manifest.atlas_resolution_um[2]) /
-        2,
-    );
-    for (const id of r.index.near(p, radius)) {
-      if (erase) {
-        r.painted.delete(id);
-        r.mirrored.delete(id);
-      } else {
-        r.painted.add(id);
-        if (!ids.includes(id)) r.mirrored.add(id);
-      }
+    const p = mirrorPoint(hit.point, state.manifest.atlas_shape[2] * state.manifest.atlas_resolution_um[2] / 2);
+    const original = new Set(ids);
+    let reflected = r.index.near(p, radius);
+    if ($("brush-shape").value === 'surface' && reflected.length) {
+      const closest = reflected.reduce((best, id) => {
+        const distance = f => [0,1,2].reduce((sum,a) => sum + (r.centroids[f * 3 + a] - p[a]) ** 2, 0);
+        return distance(id) < distance(best) ? id : best;
+      });
+      reflected = surfaceBrush(r, closest, p, radius);
+    }
+    for (const id of reflected) {
+      if (erase) { painted.delete(id); mirrored.delete(id); }
+      else { painted.add(id); if (!original.has(id)) mirrored.add(id); }
     }
   }
-  viewer.update(r);
-  syncCounts();
-  slices.refresh();
-  dirty();
+  layer.painted = [...painted]; layer.mirrored = [...mirrored]; refreshPaint(r);
 }
 function end() {
   if (!stroke) return;
   const r = state.regions.get(stroke.id);
   if (r) {
-    stroke.after = [...r.painted];
-    stroke.afterMirror = [...r.mirrored];
-    if (
-      stroke.before.join(",") !== stroke.after.join(",") ||
-      stroke.beforeMirror.join(",") !== stroke.afterMirror.join(",")
-    ) {
-      undo.push(stroke);
-      if (undo.length > 50) undo.shift();
-      redo = [];
+    stroke.after = snapshot(r);
+    if (JSON.stringify(stroke.before) !== JSON.stringify(stroke.after)) {
+      undo.push(stroke); if (undo.length > 50) undo.shift(); redo = [];
     }
   }
-  stroke = null;
-  syncCounts();
+  stroke = null; syncCounts();
 }
 function history(back) {
-  const source = back ? undo : redo,
-    target = back ? redo : undo,
-    change = source.pop();
+  const source = back ? undo : redo, target = back ? redo : undo, change = source.pop();
   if (!change) return;
   const r = state.regions.get(change.id);
-  r.painted = new Set(change[back ? "before" : "after"]);
-  r.mirrored = new Set(change[back ? "beforeMirror" : "afterMirror"]);
-  target.push(change);
-  active(r.id);
-  viewer.update(r);
-  slices.refresh();
-  syncCounts();
-  dirty();
+  restore(r, change[back ? 'before' : 'after']); target.push(change);
+  active(r.id); refreshPaint(r);
 }
 state.cellColor = (cell) =>
   state.colorColumn
@@ -443,60 +427,50 @@ async function importCells(file) {
   }
   acceptRows(rows, units);
 }
-async function openProject(file) {
-  if (!state.manifest || busy) throw Error("Wait for atlas loading to finish.");
-  if (file.size > 50 * 1024 * 1024)
-    throw Error("Project exceeds the 50 MB import limit.");
-  const data = validateProject(JSON.parse(await file.text()), state.manifest);
-  if (
-    state.dirty &&
-    !confirm("Replace the current workspace with this saved project?")
-  )
-    return;
-  busy = true;
-  status("Opening project…");
+function captureView() {
+  state.view = { position: viewer.camera.position.toArray(), target: viewer.controls.target.toArray(),
+    shell: $("shell").checked, planes: $("planes").checked, slices: slices.entries.map(e => e.index) };
+}
+function startWorkspace() {
+  document.body.classList.remove('home');
+  slices?.planes(); slices?.refresh(); viewer?.render();
+}
+async function openProjects(files, forceReplace = false) {
+  if (!state.manifest || busy || bulkLoading) throw Error('Wait for atlas loading to finish.');
+  const replace = forceReplace || $("import-mode").value === 'replace';
+  if (replace && state.dirty && !confirm('Replace the current workspace with the saved files?')) return;
+  busy = true; document.querySelector(".workspace").inert = true; search(); status('Validating saved files…');
   try {
+    captureView();
+    let data = replace ? null : projectData(state);
+    for (const file of files) {
+      const incoming = await readProject(file, state.manifest);
+      data = data ? mergeProjects(data, incoming, file.name) : incoming;
+    }
+    if (!data) return;
+    validateProject(data, state.manifest);
     const prepared = [];
     for (const saved of data.regions) {
-      const source = state.manifest.regions.find((r) => r.id === saved.id),
-        r = await loadMesh(source);
-      Object.assign(r, {
-        painted: new Set(saved.painted),
-        mirrored: new Set(saved.mirrored),
-        visible: saved.visible,
-        opacity: saved.opacity,
-      });
-      prepared.push(r);
+      const source = state.manifest.regions.find(r => r.id === saved.id), r = await loadMesh(source);
+      Object.assign(r, { painted: new Set(saved.painted), mirrored: new Set(saved.mirrored), visible: saved.visible,
+        opacity: saved.opacity, color: saved.color || source.color, layers: saved.layers, activeLayer: saved.activeLayer });
+      ensureLayers(r, data.paintColor, data.mirrorColor); syncPaint(r); prepared.push(r);
     }
+    // Commit only after every file and mesh has validated successfully.
     for (const id of state.regions.keys()) viewer.remove(id);
-    state.regions.clear();
-    state.paintColor = data.paintColor;
-    state.mirrorColor = data.mirrorColor;
-    viewer.paintColor = data.paintColor;
-    viewer.mirrorColor = data.mirrorColor;
-    $("paint-color").value = data.paintColor;
-    $("mirror-color").value = data.mirrorColor;
-    for (const r of prepared) {
-      state.regions.set(r.id, r);
-      viewer.add(r);
-    }
-    state.cells = data.cells ?? null;
-    state.labelColumn = data.labelColumn || "";
-    state.colorColumn = data.colorColumn || "";
-    undo = [];
-    redo = [];
-    active(data.active);
-    setupCells();
-    if (data.active) {
-      viewer.focus(data.active);
-      slices.entries.forEach((e) => slices.focus(e));
-    }
-    state.dirty = false;
-    status("Project restored. Mesh identities and face IDs verified.");
-  } finally {
-    busy = false;
-    search();
-  }
+    state.regions.clear(); state.paintColor = data.paintColor; state.mirrorColor = data.mirrorColor;
+    for (const r of prepared) { state.regions.set(r.id, r); viewer.add(r); }
+    state.cells = data.cells ?? null; state.labelColumn = data.labelColumn || ''; state.colorColumn = data.colorColumn || '';
+    undo = []; redo = []; active(data.active); setupCells(); startWorkspace();
+    if (data.view) {
+      viewer.camera.position.fromArray(data.view.position); viewer.controls.target.fromArray(data.view.target); viewer.controls.update();
+      $("shell").checked = data.view.shell; viewer.shell.visible = data.view.shell;
+      $("planes").checked = data.view.planes;
+      slices.entries.forEach((e, i) => { e.index = data.view.slices[i]; slices.load(e); });
+      slices.planes(); viewer.render();
+    } else if (data.active) { viewer.focus(data.active); slices.entries.forEach(e => slices.focus(e)); }
+    state.dirty = !replace; status('Project restored. Labels, meshes, painted faces and cell data are ready.');
+  } finally { busy = false; document.querySelector(".workspace").inert = false; search(); }
 }
 for (const b of document.querySelectorAll("[data-tab]"))
   b.onclick = () => tab(b.dataset.tab);
@@ -508,6 +482,10 @@ $("search").oninput = search;
 $("focus").onclick = () => viewer?.focus(state.active);
 $("radius").oninput = () => {
   $("radius-value").textContent = $("radius").value + " µm";
+};
+$("region-color").oninput = () => {
+  const r = state.regions.get(state.active); if (!r) return;
+  r.color = $("region-color").value; viewer.update(r); dirty();
 };
 $("opacity").oninput = () => {
   const r = state.regions.get(state.active);
@@ -530,8 +508,11 @@ for (const [id, key] of [
 ])
   $(id).oninput = () => {
     state[key] = $(id).value;
-    viewer[key] = state[key];
-    for (const r of state.regions.values()) viewer.update(r);
+    const r = state.regions.get(state.active);
+    if (r) {
+      const layer = ensureLayers(r, state.paintColor, state.mirrorColor);
+      layer[key === 'paintColor' ? 'color' : 'mirrorColor'] = state[key]; viewer.update(r); renderLayers();
+    }
     slices.refresh();
     dirty();
   };
@@ -541,8 +522,8 @@ $("clear-roi").onclick = () => {
   const r = state.regions.get(state.active);
   if (!r?.painted.size) return;
   begin();
-  r.painted.clear();
-  r.mirrored.clear();
+  const layer = ensureLayers(r, state.paintColor, state.mirrorColor);
+  layer.painted = []; layer.mirrored = []; syncPaint(r);
   end();
   viewer.update(r);
   slices.refresh();
@@ -563,11 +544,12 @@ $("example-cells").onclick = () => {
   if (!state.manifest) return;
   $("units").value = "mm";
   acceptRows(
-    [
-      { Name: "Cell 01", AP: 8.8, DV: 4.5, ML: 2.0, Tau: 18.2 },
-      { Name: "Cell 02", AP: 9.1, DV: 4.8, ML: 2.2, Tau: 26.5 },
-      { Name: "Cell 03", AP: 8.9, DV: 4.3, ML: 9.3, Tau: 34.1 },
-    ],
+    Array.from({ length: 96 }, (_, i) => ({
+      Name: `Cell ${String(i + 1).padStart(2, '0')}`, Dataset: 'Synthetic demonstration',
+      Group: i % 2 ? 'Right' : 'Left', AP: +(7.8 + (i % 12) * 0.13).toFixed(2),
+      DV: +(3.6 + (Math.floor(i / 12) % 4) * 0.4).toFixed(2),
+      ML: +(i % 2 ? 9.5 - (i % 7) * 0.12 : 1.9 + (i % 7) * 0.12).toFixed(2), Tau: +(12 + (i * 7 % 37) * 0.7).toFixed(1)
+    })),
     "mm",
   );
 };
@@ -601,6 +583,7 @@ for (const [id, activeOnly] of [
     try {
       busy = true;
       status("Preparing analysis export…");
+      captureView();
       await exportAnalysis(state, activeOnly);
       status(
         "Analysis ZIP downloaded. Coordinates remain in atlas micrometres.",
@@ -613,6 +596,7 @@ for (const [id, activeOnly] of [
   };
 $("save-project").onclick = () => {
   if (!state.manifest) return;
+  captureView();
   download(
     JSON.stringify(projectData(state)),
     `allen_painter_project_${Date.now()}.json`,
@@ -622,10 +606,10 @@ $("save-project").onclick = () => {
   status("Editable project downloaded.");
 };
 $("project-file").onchange = async () => {
-  const file = $("project-file").files[0];
-  if (!file) return;
+  const files = [...$("project-file").files];
+  if (!files.length) return;
   try {
-    await openProject(file);
+    await openProjects(files);
   } catch (e) {
     fail(e);
   } finally {
@@ -678,13 +662,19 @@ async function init() {
       viewer.add(mesh, true);
     }
     if (!slices) slices = new Slices(state.manifest, state, viewer, status);
-    $("search").value = "ENT";
+    const mainAcronyms = new Set(['Isocortex', 'OLF', 'HPF', 'CTXsp', 'STR', 'PAL', 'TH', 'HY', 'MB', 'P', 'MY', 'CB', 'fiber tracts', 'VS']);
+    for (const r of state.manifest.regions.filter(r => mainAcronyms.has(r.acronym)).sort((a,b) => a.name.localeCompare(b.name))) {
+      const option = document.createElement('option'); option.value = r.id; option.textContent = r.name; $("main-region").append(option);
+    }
+    $("search").value = "";
     search();
     active(null);
+    viewer.planes.forEach(p => p.visible = false);
     viewer.render();
+    $("start").disabled = false; $("home-upload").disabled = false;
     $("loading").hidden = true;
     status(
-      `${state.manifest.regions.filter((r) => r.file).length} atlas meshes available. Search a region to begin.`,
+      "Atlas ready. Start painting or upload saved work.",
     );
   } catch (err) {
     $("loading-message").textContent = err.message;
@@ -694,5 +684,63 @@ async function init() {
     initRunning = false;
   }
 }
+$("start").disabled = true; $("home-upload").disabled = true;
+$("start").onclick = startWorkspace;
+$("home-upload").onclick = () => { $("import-mode").value = 'replace'; $("project-file").click(); };
+$("main-region").onchange = search;
+$("layer-filter").oninput = renderLayers;
+for (const [id, key] of [['layer-name', 'name'], ['layer-tags', 'tags']]) $(id).onchange = () => {
+  const r = state.regions.get(state.active); if (!r) return;
+  begin(); ensureLayers(r, state.paintColor, state.mirrorColor)[key] = $(id).value.trim() || (key === 'name' ? 'Untitled ROI' : ''); end(); renderLayers(); dirty();
+};
+$("add-layer").onclick = () => {
+  const r = state.regions.get(state.active); if (!r) return; begin();
+  const layer = newLayer('ROI ' + (r.layers.length + 1), state.paintColor, state.mirrorColor);
+  r.layers.push(layer); r.activeLayer = layer.id; end(); renderLayers(); dirty();
+};
+$("delete-layer").onclick = () => {
+  const r = state.regions.get(state.active); if (!r) return; begin();
+  r.layers = r.layers.filter(l => l.id !== r.activeLayer);
+  if (!r.layers.length) r.layers.push(newLayer()); r.activeLayer = r.layers[0].id;
+  refreshPaint(r); end(); renderLayers();
+};
+for (const id of ['isolate-layer', 'show-layers']) $(id).onclick = () => {
+  const r = state.regions.get(state.active); if (!r) return;
+  r.layers.forEach(l => l.visible = id === 'show-layers' || l.id === r.activeLayer); refreshPaint(r); renderLayers();
+};
+for (const button of document.querySelectorAll('[data-mask]')) button.onclick = () => {
+  const r = state.regions.get(state.active); if (!r) return status('Load a region first.');
+  begin(); modifyMask(r, ensureLayers(r, state.paintColor, state.mirrorColor), button.dataset.mask); end(); refreshPaint(r);
+};
+$("load-all").onclick = async () => {
+  if (busy || bulkLoading) return;
+  const selected = filteredRegions.filter(r => r.file && !state.regions.has(r.id));
+  if (selected.length > 50 && !confirm(`Load ${selected.length} meshes? This can use substantial memory. Choose a main region to load a smaller set.`)) return;
+  bulkLoading = true; cancelLoad = false; $("cancel-load").hidden = false;
+  $("load-all").disabled = true; $("remove-all").disabled = true;
+  try {
+    for (const r of selected) {
+      if (cancelLoad) break;
+      await addRegion(r, true);
+      await new Promise(resolve => requestAnimationFrame(resolve));
+    }
+    viewer.view('3d'); status(cancelLoad ? 'Mesh loading stopped. Loaded meshes are retained.' : 'Matching meshes loaded.');
+  } catch (e) { fail(e); } finally {
+    bulkLoading = false; $("cancel-load").hidden = true; $("load-all").disabled = false; $("remove-all").disabled = false; search();
+  }
+};
+$("cancel-load").onclick = () => { cancelLoad = true; };
+$("remove-all").onclick = () => {
+  if (busy || bulkLoading) return;
+  if ([...state.regions.values()].some(r => r.painted.size) && !confirm('Remove all meshes and their paint layers? Save your work first if you want to keep it.')) return;
+  for (const id of state.regions.keys()) viewer.remove(id);
+  state.regions.clear(); undo = []; redo = []; active(null); search(); dirty();
+};
+$("export-html").onclick = async () => {
+  if (busy || bulkLoading) return;
+  busy = true; status('Preparing standalone interactive HTML…');
+  try { await exportHTML(viewer); status('Interactive HTML downloaded. Open it offline or share the file.'); }
+  catch (e) { fail(e); } finally { busy = false; }
+};
 $("retry").onclick = init;
 init();

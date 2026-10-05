@@ -50,6 +50,8 @@ export async function exportAnalysis(state, activeOnly) {
         structure_id: r.id,
         color: r.color,
         visible: r.visible,
+        opacity: r.opacity,
+        layers: r.layers,
         n_painted_faces: ids.length,
         mesh_geometry_sha256: hash,
       };
@@ -87,6 +89,7 @@ export async function exportAnalysis(state, activeOnly) {
         face_ids_file: table,
         region_color: r.color,
         mirrored_face_ids: [...r.mirrored].sort((a, b) => a - b),
+        layers: r.layers,
       });
       Object.assign(item, {
         painted_roi_file: mesh,
@@ -121,6 +124,12 @@ export async function exportAnalysis(state, activeOnly) {
       ]),
     );
   }
+  const project = projectData(state);
+  if (activeOnly) {
+    project.regions = project.regions.filter(r => r.id === state.active);
+    project.cells = null;
+  }
+  add("project.json", project);
   add("scene_manifest.json", manifest);
   download(
     zipSync(files, { level: 6 }),
@@ -131,10 +140,11 @@ export async function exportAnalysis(state, activeOnly) {
 export function projectData(state) {
   return {
     format: "allen-reference-painter-project",
-    version: 1,
+    version: 2,
     atlas: state.manifest.atlas,
     atlas_version: state.manifest.atlas_version,
     active: state.active,
+    view: state.view,
     paintColor: state.paintColor,
     mirrorColor: state.mirrorColor,
     labelColumn: state.labelColumn,
@@ -142,6 +152,9 @@ export function projectData(state) {
     cells: state.cells,
     regions: [...state.regions.values()].map((r) => ({
       id: r.id,
+      color: r.color,
+      layers: r.layers,
+      activeLayer: r.activeLayer,
       mesh_geometry_sha256: r.mesh_geometry_sha256,
       painted: [...r.painted],
       mirrored: [...r.mirrored],
@@ -153,7 +166,7 @@ export function projectData(state) {
 export function validateProject(data, manifest) {
   if (
     data?.format !== "allen-reference-painter-project" ||
-    data.version !== 1 ||
+    ![1, 2].includes(data.version) ||
     data.atlas !== manifest.atlas ||
     data.atlas_version !== manifest.atlas_version ||
     !Array.isArray(data.regions)
@@ -177,6 +190,25 @@ export function validateProject(data, manifest) {
         )
       )
         throw Error("Project contains an invalid face ID.");
+    if (r.color !== undefined && !/^#[a-fA-F0-9]{6}$/.test(r.color)) throw Error("Invalid mesh color.");
+    if (r.layers !== undefined) {
+      if (!Array.isArray(r.layers) || !r.layers.length || r.layers.length > 1000) throw Error("Invalid paint layers.");
+      const layerIds = new Set();
+      for (const l of r.layers) {
+        if (typeof l.id !== 'string' || layerIds.has(l.id) || typeof l.name !== 'string' || l.name.length > 120 ||
+            typeof l.tags !== 'string' || l.tags.length > 300 || typeof l.visible !== 'boolean' ||
+            !/^#[a-fA-F0-9]{6}$/.test(l.color) || !/^#[a-fA-F0-9]{6}$/.test(l.mirrorColor) ||
+            (l.source !== undefined && (typeof l.source !== 'string' || l.source.length > 500))) throw Error("Invalid layer metadata.");
+        layerIds.add(l.id);
+        for (const key of ['painted', 'mirrored']) if (!Array.isArray(l[key]) || l[key].some(f => !Number.isInteger(f) || f < 0 || f >= source.triangles)) throw Error("Invalid layer face ID.");
+        const selected = new Set(l.painted);
+        if (l.mirrored.some(f => !selected.has(f))) throw Error("Invalid mirrored layer face ID.");
+      }
+      if (!layerIds.has(r.activeLayer)) throw Error("Invalid active paint layer.");
+      const union = new Set(r.layers.flatMap(l => l.painted));
+      const mirrors = new Set(r.layers.flatMap(l => l.mirrored));
+      if (union.size !== new Set(r.painted).size || r.painted.some(f => !union.has(f)) || mirrors.size !== new Set(r.mirrored).size || r.mirrored.some(f => !mirrors.has(f))) throw Error("Layer masks disagree with ROI faces.");
+    }
     const painted = new Set(r.painted);
     if (
       r.mirrored.some((i) => !painted.has(i)) ||
@@ -211,6 +243,13 @@ export function validateProject(data, manifest) {
         typeof cell.visible !== "boolean"
       )
         throw Error("Invalid cell coordinates in project.");
+  }
+  if (data.view !== undefined) {
+    const v = data.view;
+    if (!v || !Array.isArray(v.position) || !Array.isArray(v.target) || v.position.length !== 3 || v.target.length !== 3 ||
+      ![...v.position, ...v.target].every(x => Number.isFinite(x) && Math.abs(x) < 1000) ||
+      typeof v.shell !== 'boolean' || typeof v.planes !== 'boolean' ||
+      !Array.isArray(v.slices) || v.slices.length !== 2 || v.slices.some((n,i) => !Number.isInteger(n) || n < 0 || n >= manifest.atlas_shape[i === 0 ? 0 : 2])) throw Error("Invalid saved view.");
   }
   return data;
 }
