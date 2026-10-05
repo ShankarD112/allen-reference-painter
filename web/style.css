@@ -875,3 +875,21 @@ label,
 #hover-info {
   font-size: 12px;
 }
+
+[hidden] { display: none !important; }
+.home .sidebar, .home .slices, .home .stage-top, .home .stage-bottom { display: none; }
+.home .workspace { display: block; }
+.home .stage { height: calc(100dvh - 110px); min-height: 520px; }
+#home-screen { display: none; }
+.home #home-screen { display: block; position: absolute; z-index: 3; left: 7%; top: 12%; pointer-events: none; }
+#home-screen h1 { font-size: clamp(32px, 5vw, 64px); margin-bottom: 12px; }
+#home-screen p { font-size: 18px; }
+#home-screen button { pointer-events: auto; padding: 14px 22px; }
+.mask-tools { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+.layer-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.layer-row button { flex: 1; min-width: 0; text-align: left; overflow-wrap: anywhere; }
+.layer-row.active button { border-color: var(--teal); background: #e8f5f2; }
+#layer-name, #layer-tags, #layer-filter { width: 100%; }
+.button-row { flex-wrap: wrap; }
+#paint-layers { max-height: 230px; overflow-y: auto; }
+@media(max-width: 600px) { .home #home-screen { top: 5%; left: 6%; right: 6%; } }

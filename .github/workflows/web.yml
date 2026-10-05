@@ -2,9 +2,9 @@ name: Browser app validation
 on:
   push:
     branches: [main, 'feat/browser-*']
-    paths: ['web/**', 'public/**', 'scripts/*web*', 'requirements-web.txt', 'index.html', 'package*.json', 'vite.config.js', 'playwright.config.js', '.github/workflows/web.yml']
+    paths: ['web/**', 'public/**', 'scripts/*web*', 'requirements-web.txt', 'index.html', 'package*.json', 'vite*.config.js', 'playwright.config.js', '.github/workflows/web.yml']
   pull_request:
-    paths: ['web/**', 'public/**', 'scripts/*web*', 'requirements-web.txt', 'index.html', 'package*.json', 'vite.config.js', 'playwright.config.js', '.github/workflows/web.yml']
+    paths: ['web/**', 'public/**', 'scripts/*web*', 'requirements-web.txt', 'index.html', 'package*.json', 'vite*.config.js', 'playwright.config.js', '.github/workflows/web.yml']
   workflow_dispatch:
 concurrency:
   group: browser-${{ github.ref }}

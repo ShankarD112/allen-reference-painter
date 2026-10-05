@@ -5,11 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "npm run atlas:prepare && vite build",
+    "build": "npm run atlas:prepare && npm run build:viewer && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test:web": "node --test web/tests/*.test.js",
     "test:browser": "playwright test",
-    "atlas:prepare": "node scripts/prepare_web_atlas.mjs"
+    "atlas:prepare": "node scripts/prepare_web_atlas.mjs",
+    "build:viewer": "vite build --config vite.viewer.config.js",
+    "predev": "npm run build:viewer"
   },
   "dependencies": {
     "fflate": "0.8.3",

@@ -1,5 +1,6 @@
 import * as T from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { ensureLayers } from "./paint.js";
 import { toDisplay, fromDisplay } from "./core.js";
 
 export class Viewer {
@@ -56,6 +57,8 @@ export class Viewer {
       this.scene.add(mesh);
       return mesh;
     });
+    this.brush = new T.Mesh(new T.SphereGeometry(1, 20, 12), new T.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.3, depthWrite: false }));
+    this.brush.visible = false; this.scene.add(this.brush);
     const el = this.renderer.domElement;
     el.addEventListener("pointerdown", (e) => {
       if (e.button !== 0 || this.mode === "navigate") return;
@@ -69,9 +72,16 @@ export class Viewer {
     });
     el.addEventListener("pointermove", (e) => {
       const hit = this.hit(e);
-      if (hit) callbacks.hover(hit);
+      this.brush.visible = !!hit && this.mode !== 'navigate';
+      if (hit) {
+        callbacks.hover(hit);
+        this.brush.position.set(...toDisplay(hit.point));
+        this.brush.scale.setScalar(Number(document.getElementById('radius').value) / 1000);
+      }
+      this.render();
       if (this.drawing && hit) callbacks.paint(hit);
     });
+    el.addEventListener("pointerleave", () => { this.brush.visible = false; this.render(); });
     const end = () => {
       if (this.drawing) {
         this.drawing = false;
@@ -97,6 +107,7 @@ export class Viewer {
   }
   setMode(mode) {
     this.mode = mode;
+    if (this.brush) this.brush.visible = false;
     this.controls.enabled = mode === "navigate";
     this.renderer.domElement.style.cursor =
       mode === "navigate" ? "grab" : "crosshair";
@@ -141,7 +152,7 @@ export class Viewer {
       roughness: 0.68,
       metalness: 0.05,
       depthWrite: !shell,
-      vertexColors: !shell,
+      vertexColors: false,
     });
     const mesh = new T.Mesh(g, material);
     if (shell) {
@@ -156,30 +167,49 @@ export class Viewer {
     );
     this.regions.set(region.id, region);
     this.scene.add(mesh);
+    mesh.name = region.acronym + " — " + region.name;
+    mesh.userData = { kind: "region", regionId: region.id };
     this.update(region);
   }
   update(region) {
-    const attr = region.mesh.geometry.attributes.color,
-      base = new T.Color(region.color),
-      paint = new T.Color(this.paintColor || "#ff795f"),
-      mirror = new T.Color(this.mirrorColor || "#55d9e7");
-    for (let i = 0; i < region.faces.length / 3; i++) {
-      const c = region.painted.has(i)
-        ? region.mirrored.has(i)
-          ? mirror
-          : paint
-        : base;
-      for (let k = 0; k < 3; k++) attr.setXYZ(i * 3 + k, c.r, c.g, c.b);
-    }
-    attr.needsUpdate = true;
+    region.mesh.material.color.set(region.color);
     region.mesh.material.opacity = region.opacity;
     region.mesh.material.depthWrite = region.opacity >= 0.95;
     region.mesh.visible = region.visible;
+    for (const overlay of region.overlays || []) {
+      this.scene.remove(overlay); overlay.geometry.dispose(); overlay.material.dispose();
+    }
+    region.overlays = [];
+    ensureLayers(region, this.paintColor, this.mirrorColor);
+    const source = region.mesh.geometry.attributes.position;
+    for (const [index, layer] of region.layers.entries()) {
+      if (!layer.painted.length) continue;
+      const positions = new Float32Array(layer.painted.length * 9), colors = new Float32Array(positions.length);
+      const painted = new T.Color(layer.color), mirror = new T.Color(layer.mirrorColor), mirrored = new Set(layer.mirrored);
+      layer.painted.forEach((face, i) => {
+        const color = mirrored.has(face) ? mirror : painted;
+        for (let k = 0; k < 3; k++) {
+          positions.set([source.getX(face * 3 + k), source.getY(face * 3 + k), source.getZ(face * 3 + k)], i * 9 + k * 3);
+          colors.set([color.r, color.g, color.b], i * 9 + k * 3);
+        }
+      });
+      const geometry = new T.BufferGeometry();
+      geometry.setAttribute('position', new T.BufferAttribute(positions, 3));
+      geometry.setAttribute('color', new T.BufferAttribute(colors, 3));
+      // Unlit, opaque masks stay saturated while the anatomical mesh remains translucent.
+      const overlay = new T.Mesh(geometry, new T.MeshBasicMaterial({ vertexColors: true, side: T.DoubleSide,
+        polygonOffset: true, polygonOffsetFactor: -1 - index * 0.01, polygonOffsetUnits: -1 - index * 0.01 }));
+      overlay.visible = region.visible && layer.visible; overlay.renderOrder = 2 + index;
+      overlay.name = layer.name;
+      overlay.userData = { kind: 'layer', regionId: region.id, layerId: layer.id, color: layer.color, tags: layer.tags, source: layer.source || '', region: region.acronym, layerVisible: layer.visible };
+      this.scene.add(overlay); region.overlays.push(overlay);
+    }
     this.render();
   }
   remove(id) {
     const r = this.regions.get(id);
     if (!r) return;
+    for (const overlay of r.overlays || []) { this.scene.remove(overlay); overlay.geometry.dispose(); overlay.material.dispose(); }
     this.scene.remove(r.mesh);
     r.mesh.geometry.dispose();
     r.mesh.material.dispose();

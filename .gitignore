@@ -34,3 +34,5 @@ test-results/
 public/data/
 .atlas-cache/
 .atlas-venv/
+
+public/share/

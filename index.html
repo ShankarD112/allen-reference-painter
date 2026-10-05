@@ -11,17 +11,17 @@
     <title>Allen Reference Painter</title>
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%230d1b2b'/%3E%3Cpath d='M10 29L20 10L30 29M14 22H26' stroke='%235ee5ce' stroke-width='3' fill='none'/%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%230d1b2b'/%3E%3Cpath d='M20 8C5 8 5 32 20 32M20 8C35 8 35 32 20 32M20 8V32M10 16L17 20M30 16L23 20' stroke='%235ee5ce' stroke-width='3' fill='none'/%3E%3C/svg%3E"
     />
   </head>
-  <body>
+  <body class="home">
     <header>
       <a class="brand" href="./" aria-label="Allen Reference Painter home"
-        ><span class="brand-icon">A</span
+        ><span class="brand-icon" aria-hidden="true">◉</span
         ><span>Reference Painter<small>ALLEN MOUSE ATLAS</small></span></a
       >
-      <div class="header-note">Anatomy, in your hands.</div>
-      <span class="version">WEB PREVIEW</span><button id="help">Help</button>
+      <div class="header-note"></div>
+      <button id="help">Help</button>
     </header>
     <main class="workspace">
       <aside class="sidebar">
@@ -34,14 +34,14 @@
         <div class="panel" id="panel-regions">
           <p class="eyebrow">01 / BUILD YOUR SCENE</p>
           <h1>Find your region.</h1>
-          <label for="search">Search the atlas</label
+          <label for="main-region">Main region</label><select id="main-region"><option value="">All regions</option></select><label for="search">Search the atlas</label
           ><input
             id="search"
             type="search"
-            placeholder="ENT, hippocampus, 918…"
+            placeholder="Region name or acronym…"
             autocomplete="off"
           />
-          <p class="muted" id="search-count">Loading atlas index…</p>
+          <div class="button-row"><button id="load-all">Load all matches</button><button id="remove-all">Remove all meshes</button></div><button id="cancel-load" class="wide" hidden>Stop loading</button>
           <div
             id="search-results"
             class="results"
@@ -58,6 +58,7 @@
             <label for="shell">Reference brain</label
             ><input id="shell" type="checkbox" checked />
           </div>
+          <div class="field-row"><label for="region-color">Active region color</label><input id="region-color" type="color" value="#81a3b8" /></div>
           <label for="opacity"
             >Active region opacity
             <output id="opacity-value">80%</output></label
@@ -74,7 +75,7 @@
             ><button data-mode="paint" aria-pressed="false">Paint</button
             ><button data-mode="erase" aria-pressed="false">Erase</button>
           </div>
-          <label for="radius"
+          <label for="brush-shape">Brush selection</label><select id="brush-shape"><option value="surface">Connected surface</option><option value="sphere">Sphere (through surface)</option></select><label for="radius"
             >Brush radius <output id="radius-value">250 µm</output></label
           ><input
             id="radius"
@@ -96,12 +97,12 @@
             <label for="mirror-color">Mirror color</label
             ><input id="mirror-color" type="color" value="#55d9e7" />
           </div>
-          <p class="note">Symmetry uses the atlas midline at ML 5,700 µm.</p>
+          <h2>Paint layers</h2><label for="layer-filter">Filter labels or tags</label><input id="layer-filter" type="search" placeholder="Find a paint layer…" /><div id="paint-layers"></div><button id="add-layer" class="wide">Add paint layer</button><label for="layer-name">Active layer label</label><input id="layer-name" maxlength="120" /><label for="layer-tags">Tags (comma separated)</label><input id="layer-tags" maxlength="300" /><div class="button-row"><button id="delete-layer">Delete layer</button><button id="isolate-layer">Show only this layer</button><button id="show-layers">Show all layers</button></div><h2>Refine active layer</h2><div class="mask-tools"><button data-mask="fill">Fill region</button><button data-mask="invert">Invert</button><button data-mask="grow">Grow</button><button data-mask="shrink">Shrink</button><button data-mask="smooth">Smooth boundary</button></div><p class="note">Symmetry uses the atlas midline at ML 5,700 µm.</p>
           <div class="button-row">
             <button id="undo" disabled>Undo</button
             ><button id="redo" disabled>Redo</button>
           </div>
-          <button id="clear-roi" class="wide">Clear active ROI</button>
+          <button id="clear-roi" class="wide">Clear active layer</button>
           <div class="metric">
             <strong id="face-count">0</strong
             ><span>selected surface faces</span>
@@ -131,7 +132,7 @@
               type="file"
               accept=".csv,.tsv,.txt,.xlsx" /></label
           ><button id="example-cells" class="wide">
-            Load example cells (mm)
+            Load 96 example cells (mm)
           </button>
           <div id="cell-controls" hidden>
             <p id="cell-summary" class="note"></p>
@@ -169,14 +170,14 @@
             Export full scene (.zip)
           </button>
           <p class="note">
-            Includes PLY geometry, face IDs, centroid CSVs and atlas metadata.
+            Includes PLY geometry, face IDs, centroid CSVs, labeled masks and a resumable project.
             Scene exports include cell metadata and visibility.
           </p>
-          <h2>Editable project</h2>
+          <button id="export-html" class="wide">Export interactive HTML</button><p class="note">Standalone, offline 3D viewer with meshes, paint labels and cells. Share the downloaded HTML file.</p><h2>Resume or combine work</h2><label for="import-mode">Import mode</label><select id="import-mode"><option value="replace">Resume saved workspace</option><option value="merge">Add files as separate paint layers</option></select>
           <button id="save-project" class="wide">Save project (.json)</button
           ><label class="upload compact" for="project-file"
-            ><strong>Open saved project</strong
-            ><input id="project-file" type="file" accept=".json"
+            ><strong>Upload projects or ROI / scene ZIPs</strong
+            ><input id="project-file" type="file" accept=".json,.zip" multiple
           /></label>
           <p class="muted">
             Save a project before closing the tab. Projects retain painting and
@@ -194,7 +195,7 @@
         </div>
       </aside>
       <section class="stage" aria-label="3D atlas workspace">
-        <div class="stage-top">
+        <div id="home-screen"><p class="eyebrow">ALLEN MOUSE ATLAS</p><h1>Reference Painter</h1><p>Explore. Paint. Remember.</p><div class="button-row"><button id="start" class="primary">Start painting</button><button id="home-upload">Upload saved work</button></div></div><div class="stage-top">
           <div>
             <p class="eyebrow">3D ATLAS WORKSPACE</p>
             <h2 id="active-title">Loading reference atlas</h2>
