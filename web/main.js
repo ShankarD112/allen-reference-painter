@@ -400,6 +400,7 @@ function setupCells() {
   $('cell-label').replaceChildren(new Option('Row number',''));
   for(const h of data?.headers||[])$('cell-label').add(new Option(h,h));
   $('cell-label').value=state.labelColumn;
+  $('cell-color').replaceChildren();$('gene-select').replaceChildren();
   metadataOptions();expressionControls();updateCells();
 }
 function acceptRows(rows, units) {
@@ -496,7 +497,7 @@ async function openProjects(files, forceReplace = false) {
       slices.planes(); viewer.render();
     } else if (data.active) { viewer.focus(data.active); slices.entries.forEach(e => slices.focus(e)); }
     state.dirty = !replace; status('Project restored. Labels, meshes, painted faces and cell data are ready.');
-  } finally { busy = false; document.querySelector(".workspace").inert = false; search(); }
+  } finally { busy = false; document.querySelector(".workspace").inert = false; geneOptions(); search(); }
 }
 for (const b of document.querySelectorAll("[data-tab]"))
   b.onclick = () => tab(b.dataset.tab);
