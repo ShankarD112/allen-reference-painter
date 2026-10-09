@@ -294,7 +294,7 @@ function metadataOptions() {
   const select=$('cell-color'),chosen=select.value||state.colorColumn,query=$('metadata-search').value.trim().toLowerCase();
   select.replaceChildren(new Option('Choose metadata field…',''));
   for(const h of state.cells?.headers||[])if(h.toLowerCase().includes(query))select.add(new Option(h,h));
-  if([...select.options].some(o=>o.value===chosen))select.value=chosen;
+  if(chosen&&[...select.options].some(o=>o.value===chosen))select.value=chosen;
   else if(query&&select.options.length>1)select.selectedIndex=1;
 }
 function geneOptions() {
