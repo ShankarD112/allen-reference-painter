@@ -35,7 +35,8 @@ The first build downloads the pinned public reference atlas. `vercel.json` recor
 - Import CSV, TSV, delimited TXT, and XLSX cell tables with explicit source units.
   XLSX reads the first worksheet. Legacy XLS is not supported in this web version;
   save it as XLSX or CSV first. Coordinate aliases match the desktop application.
-- Numeric cell colors share a range across 2D and 3D. Missing values use gray.
+- Metadata and gene-expression colors share a range across 2D and 3D. Text
+  metadata uses categorical colors. Missing values use gray.
   Literal text filtering and per-row visibility preserve all original rows.
 - Download active ROI or complete scene as ZIP (PLY, face/centroid CSV, metadata,
   and imported cell metadata/visibility). Downloads keep AP/DV/ML micrometres.
@@ -46,6 +47,46 @@ Save an editable project before closing. There is no automatic cloud save,
 account, collaboration, or cross-device synchronization. A before-unload prompt
 protects unsaved work where the browser supports it. File contents are processed
 locally. Static atlas assets are fetched from the host.
+
+## Gene expression and metadata coloring
+
+Import cell metadata first, choosing the coordinate units. Include a unique
+`cell_id` for every row, alongside `x,y,z` (or the supported coordinate aliases).
+Use the metadata search and Apply metadata color to choose a categorical field
+such as `MECvsLEC` or a numeric field.
+
+Then upload an optional expression matrix: **genes in rows, cell IDs in column
+headers, gene names in the first column**. CSV, TSV, TXT and the first worksheet
+of XLSX are supported. A blank top-left header from R's row-name export is valid:
+
+```r
+write.csv(metadata_saved, "cells.csv", row.names = FALSE)
+write.csv(counts_saved, "expression.csv", row.names = TRUE)
+```
+
+Search for a gene, select it and click Apply gene color. Only one source controls
+cell color at a time; applying metadata replaces gene coloring and vice versa.
+Search alone does not change the active coloring. Single color resets the view.
+
+Matching uses case-sensitive `cell_id` values after trimming surrounding spaces,
+never row/column order. The match summary lists missing IDs on both sides.
+Duplicate IDs or gene names, malformed values, or zero matching IDs reject the
+new expression file without changing the current workspace. Unmatched metadata
+cells and blank/NA values are gray; **zero is a measured value**, not missing.
+Decimal and negative values are retained as supplied, with no normalization or
+log transform. The scale uses all matched metadata cells, including hidden ones;
+expression-only columns do not affect it.
+
+Expression imports support up to 5 million values, 100 MB for text files and
+15 MB for XLSX. Subset larger matrices before export. Replacing cell metadata
+clears the previous expression table. Combining workspaces with duplicate cell
+IDs is rejected when expression is attached; use Resume for the same dataset.
+
+Editable JSON and full scene ZIPs retain the matrix and selected color source.
+Scene ZIPs also include `gene_expression.csv` and can contain cells alone.
+ROI-only exports contain the selected region, without cell/expression tables.
+Standalone HTML retains displayed cell colors and their legend; share the ZIP
+or JSON as well when the recipient needs to select other genes or edit data.
 
 ## Scientific contract
 

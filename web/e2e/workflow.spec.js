@@ -163,7 +163,7 @@ test('home, alphabetic regions, labeled ZIP resume/merge and standalone offline 
   const [roi] = await Promise.all([page.waitForEvent('download'),page.locator('#export-roi').click()]);
   const bytes = await readFile(await roi.path());
   const project = JSON.parse(strFromU8(unzipSync(new Uint8Array(bytes))['project.json']));
-  expect(project.version).toBe(2); expect(project.regions[0].layers).toHaveLength(2);
+  expect(project.version).toBe(3); expect(project.regions[0].layers).toHaveLength(2);
   expect(project.regions[0].layers[0].tags).toBe('animal-01, treatment');
   const file = {name:'animal-01.zip',mimeType:'application/zip',buffer:bytes};
   await page.locator('#project-file').setInputFiles(file);

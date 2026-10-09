@@ -1,4 +1,6 @@
 import "./style.css";
+import {readExpression} from './expression-import.js';
+import {activeColoring,buildCellColoring,matchExpression,metadataIds} from './expression.js';
 import { findRegions } from "./regions.js";
 import { ensureLayers, newLayer, syncPaint, snapshot, restore, surfaceBrush, modifyMask } from './paint.js';
 import { readProject, mergeProjects } from './session.js';
@@ -6,7 +8,7 @@ import { exportHTML } from './share.js';
 import Papa from "papaparse";
 import readXlsxFile from "read-excel-file/browser";
 import { loadManifest, loadMesh } from "./atlas.js";
-import { parseCells, mirrorPoint, numericRange, heatColor } from "./core.js";
+import { parseCells, mirrorPoint } from "./core.js";
 import { Viewer } from "./viewer.js";
 import { Slices } from "./slices.js";
 import {
@@ -25,6 +27,8 @@ const state = {
   mirrorColor: "#55d9e7",
   labelColumn: "",
   colorColumn: "",
+  expression: null,
+  coloring: {source:"single",key:""},
   mode: "navigate",
   dirty: false,
 };
@@ -264,26 +268,63 @@ function history(back) {
   restore(r, change[back ? 'before' : 'after']); target.push(change);
   active(r.id); refreshPaint(r);
 }
-state.cellColor = (cell) =>
-  state.colorColumn
-    ? heatColor(cell.row[state.colorColumn], state.range)
-    : "#16bda5";
+state.cellColor = () => "#16bda5";
 function updateCells() {
-  if (!state.cells) return;
-  state.range = state.colorColumn
-    ? numericRange(state.cells.cells, state.colorColumn)
-    : null;
-  viewer.setCells(state.cells.cells, state.cellColor);
+  const colors = buildCellColoring(state.cells,state.expression,activeColoring(state));
+  state.colorInfo = colors; state.cellColor = colors.color; state.range = colors.range;
+  viewer.setCells(state.cells?.cells || [], state.cellColor);
   slices.refresh();
-  $("color-legend").hidden = !state.range;
+  $("active-coloring").textContent = colors.label;
+  $("active-coloring").dataset.source = colors.source;
+  $("color-legend").hidden = !colors.range;
   $("color-range").replaceChildren();
-  if (state.range)
-    for (const x of state.range) {
-      const span = document.createElement("span");
-      span.textContent = String(x);
-      $("color-range").append(span);
-    }
+  if(colors.range)for(const x of colors.range){const span=document.createElement('span');span.textContent=String(x);$("color-range").append(span);}
+  $("category-legend").replaceChildren();
+  for(const entry of colors.categories){const row=document.createElement('div'),swatch=document.createElement('i'),label=document.createElement('span');swatch.style.background=entry.color;label.textContent=entry.label;row.append(swatch,label);$("category-legend").append(row);}
+  $("color-missing").textContent=colors.source==='single'?'':`${colors.missing} cells with missing values (gray). ${colors.range?'Scale uses all matched cells, including hidden cells.':''}`;
   renderCellTable();
+}
+function applyColoring(source,key='') {
+  if(source!=='single'&&!key){status('Select a field or gene first.',true);return;}
+  const coloring={source,key};buildCellColoring(state.cells,state.expression,coloring);
+  state.coloring=coloring;state.colorColumn=source==='metadata'?key:'';
+  updateCells();dirty();status(`${state.colorInfo.label} applied to 3D and both slice views.`);
+}
+function metadataOptions() {
+  const select=$('cell-color'),chosen=select.value||state.colorColumn,query=$('metadata-search').value.trim().toLowerCase();
+  select.replaceChildren(new Option('Choose metadata field…',''));
+  for(const h of state.cells?.headers||[])if(h.toLowerCase().includes(query))select.add(new Option(h,h));
+  if([...select.options].some(o=>o.value===chosen))select.value=chosen;
+  else if(query&&select.options.length>1)select.selectedIndex=1;
+}
+function geneOptions() {
+  const select=$('gene-select'),chosen=select.value||(state.coloring.source==='gene'?state.coloring.key:''),query=$('gene-search').value.trim().toLowerCase();
+  const genes=(state.expression?.genes||[]).filter(g=>g.toLowerCase().includes(query)).sort((a,b)=>Number(b.toLowerCase()===query)-Number(a.toLowerCase()===query)||a.localeCompare(b));
+  const shown=genes.slice(0,100);if(chosen&&genes.includes(chosen)&&!shown.includes(chosen))shown.push(chosen);
+  select.replaceChildren(new Option('Choose a gene…',''));for(const gene of shown)select.add(new Option(gene,gene));
+  if(shown.includes(chosen))select.value=chosen;else if(query&&shown.length)select.selectedIndex=1;
+  $('gene-count').textContent=state.expression?`${genes.length.toLocaleString()} matching genes${genes.length>100?' · first 100 shown; refine your search':''}`:'';
+  $('apply-gene').disabled=!select.value||busy;
+}
+function expressionControls() {
+  const data=state.expression;
+  $('gene-search').disabled=!data;$('gene-select').disabled=!data;$('remove-expression').hidden=!data;
+  $('expression-details').hidden=!data;
+  if(data){const summary=matchExpression(data,state.cells);$('expression-summary').textContent=`${data.genes.length.toLocaleString()} genes · ${summary.matched} / ${summary.metadataTotal} metadata cells matched`;
+    const summarize=values=>values.length?values.slice(0,20).join(', ')+(values.length>20?'…':''):'none';
+    $('expression-unmatched').textContent=`Metadata IDs without expression (${summary.unmatchedMetadata.length}): ${summarize(summary.unmatchedMetadata)}. Expression IDs without coordinates (${summary.unmatchedExpression.length}): ${summarize(summary.unmatchedExpression)}. Matching is case-sensitive after trimming surrounding spaces.`;
+  }else{$('expression-summary').textContent='No expression file loaded.';$('expression-unmatched').textContent='';}
+  geneOptions();
+}
+async function importExpression(file) {
+  if(busy)return;
+  const table=state.cells;metadataIds(table);busy=true;document.querySelector('.workspace').inert=true;
+  $('expression-summary').textContent='Reading expression matrix…';status('Matching gene expression to cell IDs…');
+  try {const expression=await readExpression(file,table,()=>{$('expression-summary').textContent='Reading and validating gene rows…';});
+    state.expression=expression;
+    if(state.coloring.source==='gene'&&!expression.genes.includes(state.coloring.key))state.coloring={source:'single',key:''};
+    $('gene-search').value='';updateCells();dirty();status('Expression loaded. Search a gene and apply its color.');
+  } finally {busy=false;document.querySelector('.workspace').inert=false;expressionControls();}
 }
 function matches(cell) {
   const query = $("cell-filter").value.toLowerCase();
@@ -322,6 +363,7 @@ function renderCellTable() {
     label.title = state.cells.headers
       .map((h) => `${h}: ${cell.row[h] ?? ""}`)
       .join("\n");
+    if(state.colorInfo?.source!=="single")label.title += `\n${state.colorInfo.label}: ${state.colorInfo.value(cell) ?? "missing"}`;
     const focus = document.createElement("button");
     focus.textContent = "Locate";
     focus.setAttribute("aria-label", "Locate " + label.textContent);
@@ -353,35 +395,19 @@ function renderCellTable() {
   }
 }
 function setupCells() {
-  const data = state.cells;
-  $("cell-controls").hidden = !data;
-  if (!data) {
-    viewer.setCells([], state.cellColor);
-    return;
-  }
-  for (const id of ["cell-label", "cell-color"]) {
-    const select = $(id);
-    select.replaceChildren();
-    const empty = document.createElement("option");
-    empty.value = "";
-    empty.textContent = id === "cell-label" ? "Row number" : "Single color";
-    select.append(empty);
-    for (const h of data.headers) {
-      if (id === "cell-color" && !numericRange(data.cells, h)) continue;
-      const option = document.createElement("option");
-      option.value = h;
-      option.textContent = h;
-      select.append(option);
-    }
-  }
-  $("cell-label").value = state.labelColumn;
-  $("cell-color").value = state.colorColumn;
-  updateCells();
+  const data=state.cells;$("cell-controls").hidden=!data;
+  $("metadata-search").value='';$("gene-search").value='';$("cell-filter").value='';
+  $('cell-label').replaceChildren(new Option('Row number',''));
+  for(const h of data?.headers||[])$('cell-label').add(new Option(h,h));
+  $('cell-label').value=state.labelColumn;
+  metadataOptions();expressionControls();updateCells();
 }
 function acceptRows(rows, units) {
   const parsed = parseCells(rows, units, state.manifest.atlas_resolution_um);
   state.cells = parsed;
-  state.labelColumn = parsed.headers.find((h) => /name|label/i.test(h)) || "";
+  state.expression = null;
+  state.coloring = {source:"single",key:""};
+  state.labelColumn = parsed.headers.find((h) => h.toLowerCase() === "cell_id") || parsed.headers.find((h) => /name|label/i.test(h)) || "";
   state.colorColumn = "";
   setupCells();
   dirty();
@@ -460,7 +486,7 @@ async function openProjects(files, forceReplace = false) {
     for (const id of state.regions.keys()) viewer.remove(id);
     state.regions.clear(); state.paintColor = data.paintColor; state.mirrorColor = data.mirrorColor;
     for (const r of prepared) { state.regions.set(r.id, r); viewer.add(r); }
-    state.cells = data.cells ?? null; state.labelColumn = data.labelColumn || ''; state.colorColumn = data.colorColumn || '';
+    state.cells = data.cells ?? null; state.labelColumn = data.labelColumn || ''; state.colorColumn = data.colorColumn || ''; state.expression = data.expression || null; state.coloring = activeColoring(data);
     undo = []; redo = []; active(data.active); setupCells(); startWorkspace();
     if (data.view) {
       viewer.camera.position.fromArray(data.view.position); viewer.controls.target.fromArray(data.view.target); viewer.controls.update();
@@ -558,11 +584,15 @@ $("cell-label").onchange = () => {
   updateCells();
   dirty();
 };
-$("cell-color").onchange = () => {
-  state.colorColumn = $("cell-color").value;
-  updateCells();
-  dirty();
-};
+$("cell-color").onchange = () => {if($('cell-color').value)applyColoring('metadata',$('cell-color').value);};
+$('apply-metadata').onclick=()=>applyColoring('metadata',$('cell-color').value);
+$('metadata-search').oninput=metadataOptions;
+$('gene-search').oninput=geneOptions;
+$('gene-select').onchange=()=>{$('apply-gene').disabled=!$('gene-select').value;};
+$('apply-gene').onclick=()=>applyColoring('gene',$('gene-select').value);
+$('clear-cell-color').onclick=()=>applyColoring('single');
+$('expression-file').onchange=async()=>{const file=$('expression-file').files[0];if(!file)return;try{await importExpression(file);}catch(error){fail(error);}finally{$('expression-file').value='';}};
+$('remove-expression').onclick=()=>{state.expression=null;if(state.coloring.source==='gene')state.coloring={source:'single',key:''};expressionControls();updateCells();dirty();};
 $("cell-filter").oninput = renderCellTable;
 for (const [id, visible] of [
   ["show-filtered", true],
@@ -739,7 +769,7 @@ $("remove-all").onclick = () => {
 $("export-html").onclick = async () => {
   if (busy || bulkLoading) return;
   busy = true; status('Preparing standalone interactive HTML…');
-  try { await exportHTML(viewer); status('Interactive HTML downloaded. Open it offline or share the file.'); }
+  try { await exportHTML(viewer, state.colorInfo); status('Interactive HTML downloaded. Open it offline or share the file.'); }
   catch (e) { fail(e); } finally { busy = false; }
 };
 $("retry").onclick = init;

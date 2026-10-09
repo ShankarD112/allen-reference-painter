@@ -1,3 +1,4 @@
+import {mergeExpression,matchExpression,activeColoring,parseExpressionRows} from './expression.js';
 import { unzipSync, strFromU8 } from 'fflate';
 import Papa from 'papaparse';
 import { validateProject } from './export.js';
@@ -46,6 +47,13 @@ export async function readProject(file, manifest) {
     })) };
     data.labelColumn = scene.cell_label_column; data.colorColumn = scene.cell_color_column;
   }
+  if(scene.expression_file){
+    if(!files[scene.expression_file])throw Error('Missing exported expression table.');
+    const matrix=Papa.parse(strFromU8(files[scene.expression_file]),{skipEmptyLines:'greedy'});
+    if(matrix.errors.length)throw Error('Invalid exported expression table.');
+    data.expression=parseExpressionRows(matrix.data,data.cells,scene.expression_file);
+  }
+  if(scene.cell_coloring)data.coloring=scene.cell_coloring;
   return validateProject(data, manifest);
 }
 export function mergeProjects(base, incoming, sourceName) {
@@ -69,6 +77,7 @@ export function mergeProjects(base, incoming, sourceName) {
       existing.mirrored = [...new Set(existing.layers.flatMap(l => l.mirrored))];
     } else output.regions.push(copy);
   }
+  const hadCells=!!output.cells;
   if (incoming.cells) {
     if (!output.cells) output.cells = structuredClone(incoming.cells);
     else {
@@ -76,6 +85,9 @@ export function mergeProjects(base, incoming, sourceName) {
       output.cells.cells.push(...structuredClone(incoming.cells.cells));
     }
   }
+  output.expression=mergeExpression(output.expression,incoming.expression);
+  if(output.expression)matchExpression(output.expression,output.cells);
+  if(!hadCells&&incoming.cells){output.coloring=activeColoring(incoming);output.colorColumn=incoming.colorColumn||'';output.labelColumn=incoming.labelColumn||'';}
   output.active ??= incoming.active;
   return output;
 }
