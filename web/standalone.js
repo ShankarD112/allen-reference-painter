@@ -32,3 +32,11 @@ scene.traverse(object => {
 document.getElementById('filter').oninput = event => items.forEach(item => item.row.hidden = !item.row.textContent.toLowerCase().includes(event.target.value.toLowerCase()));
 document.getElementById('reset').onclick = () => { camera.position.fromArray(data.position); controls.target.fromArray(data.target); controls.update(); render(); };
 resize();
+
+if(data.cellColoring){
+ const info=data.cellColoring,host=document.getElementById('cell-color-legend');
+ const title=document.createElement('h2');title.style.fontSize='14px';title.textContent=info.label;host.append(title);
+ if(info.range){const bar=document.createElement('div');bar.style.cssText='height:8px;background:linear-gradient(90deg,#2c70b4,#3dd1be,#ffd966);border-radius:4px';const range=document.createElement('p');range.textContent=info.range.join(' – ');host.append(bar,range);}
+ for(const category of info.categories){const row=document.createElement('p');row.textContent=category.label;row.style.borderLeft='6px solid '+category.color;row.style.paddingLeft='8px';host.append(row);}
+ if(info.source!=='single'){const missing=document.createElement('p');missing.textContent=info.missing+' cells with missing values (gray).';host.append(missing);}
+}

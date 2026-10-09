@@ -138,12 +138,30 @@
             <p id="cell-summary" class="note"></p>
             <label for="cell-label">Cell labels</label
             ><select id="cell-label"></select
-            ><label for="cell-color">Color by value</label
-            ><select id="cell-color"></select>
-            <div id="color-legend" hidden>
-              <div class="gradient"></div>
-              <div id="color-range" class="field-row"></div>
-            </div>
+            >
+            <p id="active-coloring" class="note" role="status">Single color</p>
+            <h2>Color by metadata</h2>
+            <label for="metadata-search">Search metadata fields</label>
+            <input id="metadata-search" type="search" placeholder="MECvsLEC, Tau, genotype…">
+            <label for="cell-color">Metadata field</label>
+            <select id="cell-color"></select>
+            <button id="apply-metadata" class="wide">Apply metadata color</button>
+            <h2>Color by gene</h2>
+            <label class="upload compact" for="expression-file"><strong>Upload gene expression</strong><span>CSV / TSV / TXT / XLSX · genes × cells</span><input id="expression-file" type="file" accept=".csv,.tsv,.txt,.xlsx"></label>
+            <p class="muted">First column: gene names. Header: cell IDs matching <code>cell_id</code>. Values are used as supplied; no normalization is applied.</p>
+            <p id="expression-summary" class="note" aria-live="polite">No expression file loaded.</p>
+            <details id="expression-details" hidden><summary>Cell ID matching details</summary><p id="expression-unmatched" class="muted"></p></details>
+            <label for="gene-search">Search genes</label>
+            <input id="gene-search" type="search" placeholder="Search gene name or ID…" disabled>
+            <label for="gene-select">Gene</label><select id="gene-select" disabled></select>
+            <p id="gene-count" class="muted"></p>
+            <button id="apply-gene" class="wide" disabled>Apply gene color</button>
+            <button id="clear-cell-color" class="wide">Use single color</button>
+            <button id="remove-expression" class="wide" hidden>Remove expression data</button>
+            <p class="muted">Applying metadata replaces gene coloring, and vice versa. Missing values are gray; zero expression is a measured value.</p>
+            <div id="color-legend" hidden><div class="gradient"></div><div id="color-range" class="field-row"></div></div>
+            <div id="category-legend" class="category-legend"></div>
+            <p id="color-missing" class="muted"></p>
             <label for="cell-filter">Filter rows</label
             ><input
               id="cell-filter"
@@ -171,7 +189,7 @@
           </button>
           <p class="note">
             Includes PLY geometry, face IDs, centroid CSVs, labeled masks and a resumable project.
-            Scene exports include cell metadata and visibility.
+            Scene exports include cell metadata, visibility, expression data and the active color choice.
           </p>
           <button id="export-html" class="wide">Export interactive HTML</button><p class="note">Standalone, offline 3D viewer with meshes, paint labels and cells. Share the downloaded HTML file.</p><h2>Resume or combine work</h2><label for="import-mode">Import mode</label><select id="import-mode"><option value="replace">Resume saved workspace</option><option value="merge">Add files as separate paint layers</option></select>
           <button id="save-project" class="wide">Save project (.json)</button

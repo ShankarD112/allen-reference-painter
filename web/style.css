@@ -893,3 +893,9 @@ label,
 .button-row { flex-wrap: wrap; }
 #paint-layers { max-height: 230px; overflow-y: auto; }
 @media(max-width: 600px) { .home #home-screen { top: 5%; left: 6%; right: 6%; } }
+
+.category-legend {max-height:200px;overflow:auto;margin:12px 0;font-size:12px;}
+.category-legend > div {display:flex;align-items:center;gap:8px;margin:7px 0;overflow-wrap:anywhere;}
+.category-legend i {width:12px;height:12px;flex-shrink:0;border-radius:3px;}
+#expression-details {font-size:12px;} #expression-unmatched {overflow-wrap:anywhere;}
+#active-coloring {border-left:3px solid var(--teal);font-weight:600;}

@@ -150,3 +150,21 @@ be assessed through the browser CI report; the development execution runtime
 cannot run agent-browser because `/proc/self/exe` is unavailable.
 
 Details, deployment instructions and limitations: [WEB_APP.md](WEB_APP.md).
+
+## Browser gene expression — 2026-10-09
+
+Added optional genes-by-cells expression uploads joined to metadata by unique
+cell_id, with explicit mismatch reporting and atomic validation. Metadata and
+gene searches choose one active coloring source for both 3D and slice views.
+Categorical metadata uses discrete colors; numeric data retains original values
+and uses a continuous scale. Missing values remain distinct from zero.
+
+Version-3 editable projects retain expression and coloring while accepting older
+projects. Full scene ZIPs include the matrix, support cells-only workspaces and
+resume without re-upload. Offline HTML preserves displayed colors and legend.
+ROI-only exports continue to exclude cell data. Browser memory is bounded by a
+5-million-value matrix limit; imports do not normalize or transform expression.
+
+Local expression/layer tests (12) and both Vite builds pass. Full atlas and
+browser integration validation runs in PR #6, including invalid import recovery,
+color-source switching, ID order independence, ZIP resume and offline HTML.
