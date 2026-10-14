@@ -1,3 +1,5 @@
+import { CellControls } from './cell-controls.js';
+import { defaults, colorEncoding, channels, applyFilters } from './cell-explorer.js';
 import "./style.css";
 import {readExpression} from './expression-import.js';
 import {activeColoring,buildCellColoring,matchExpression,metadataIds} from './expression.js';
@@ -28,6 +30,8 @@ const state = {
   labelColumn: "",
   colorColumn: "",
   expression: null,
+  dataSource: null,
+  explorer: defaults(),
   coloring: {source:"single",key:""},
   mode: "navigate",
   dirty: false,
@@ -270,9 +274,11 @@ function history(back) {
 }
 state.cellColor = () => "#16bda5";
 function updateCells() {
-  const colors = buildCellColoring(state.cells,state.expression,activeColoring(state));
+  applyFilters(state);
+  const colors = colorEncoding(state);
+  state.cellChannels = channels(state);
   state.colorInfo = colors; state.cellColor = colors.color; state.range = colors.range;
-  viewer.setCells(state.cells?.cells || [], state.cellColor);
+  viewer.setCells(state.cells?.cells || [], state.cellColor, state.cellChannels);
   slices.refresh();
   $("active-coloring").textContent = colors.label;
   $("active-coloring").dataset.source = colors.source;
@@ -283,6 +289,7 @@ function updateCells() {
   for(const entry of colors.categories){const row=document.createElement('div'),swatch=document.createElement('i'),label=document.createElement('span');swatch.style.background=entry.color;label.textContent=entry.label;row.append(swatch,label);$("category-legend").append(row);}
   $("color-missing").textContent=colors.source==='single'?'':`${colors.missing} cells with missing values (gray). ${colors.range?'Scale uses all matched cells, including hidden cells.':''}`;
   renderCellTable();
+  explorer.render();
 }
 function applyColoring(source,key='') {
   if(source!=='single'&&!key){status('Select a field or gene first.',true);return;}
@@ -290,31 +297,15 @@ function applyColoring(source,key='') {
   state.coloring=coloring;state.colorColumn=source==='metadata'?key:'';
   updateCells();dirty();status(`${state.colorInfo.label} applied to 3D and both slice views.`);
 }
-function metadataOptions() {
-  const select=$('cell-color'),chosen=select.value||state.colorColumn,query=$('metadata-search').value.trim().toLowerCase();
-  select.replaceChildren(new Option('Choose metadata field…',''));
-  for(const h of state.cells?.headers||[])if(h.toLowerCase().includes(query))select.add(new Option(h,h));
-  if(chosen&&[...select.options].some(o=>o.value===chosen))select.value=chosen;
-  else if(query&&select.options.length>1)select.selectedIndex=1;
-}
-function geneOptions() {
-  const select=$('gene-select'),chosen=select.value||(state.coloring.source==='gene'?state.coloring.key:''),query=$('gene-search').value.trim().toLowerCase();
-  const genes=(state.expression?.genes||[]).filter(g=>g.toLowerCase().includes(query)).sort((a,b)=>Number(b.toLowerCase()===query)-Number(a.toLowerCase()===query)||a.localeCompare(b));
-  const shown=genes.slice(0,100);if(chosen&&genes.includes(chosen)&&!shown.includes(chosen))shown.push(chosen);
-  select.replaceChildren(new Option('Choose a gene…',''));for(const gene of shown)select.add(new Option(gene,gene));
-  if(shown.includes(chosen))select.value=chosen;else if(query&&shown.length)select.selectedIndex=1;
-  $('gene-count').textContent=state.expression?`${genes.length.toLocaleString()} matching genes${genes.length>100?' · first 100 shown; refine your search':''}`:'';
-  $('apply-gene').disabled=!select.value||busy;
-}
 function expressionControls() {
   const data=state.expression;
-  $('gene-search').disabled=!data;$('gene-select').disabled=!data;$('remove-expression').hidden=!data;
+  $('remove-expression').hidden=!data;
   $('expression-details').hidden=!data;
   if(data){const summary=matchExpression(data,state.cells);$('expression-summary').textContent=`${data.genes.length.toLocaleString()} genes · ${summary.matched} / ${summary.metadataTotal} metadata cells matched`;
     const summarize=values=>values.length?values.slice(0,20).join(', ')+(values.length>20?'…':''):'none';
     $('expression-unmatched').textContent=`Metadata IDs without expression (${summary.unmatchedMetadata.length}): ${summarize(summary.unmatchedMetadata)}. Expression IDs without coordinates (${summary.unmatchedExpression.length}): ${summarize(summary.unmatchedExpression)}. Matching is case-sensitive after trimming surrounding spaces.`;
   }else{$('expression-summary').textContent='No expression file loaded.';$('expression-unmatched').textContent='';}
-  geneOptions();
+  explorer.refresh();
 }
 async function importExpression(file) {
   if(busy)return;
@@ -323,7 +314,8 @@ async function importExpression(file) {
   try {const expression=await readExpression(file,table,()=>{$('expression-summary').textContent='Reading and validating gene rows…';});
     state.expression=expression;
     if(state.coloring.source==='gene'&&!expression.genes.includes(state.coloring.key))state.coloring={source:'single',key:''};
-    $('gene-search').value='';updateCells();dirty();status('Expression loaded. Search a gene and apply its color.');
+    state.explorer.genes=[];if(state.explorer.size?.source==='gene'&&!expression.genes.includes(state.explorer.size.key))state.explorer.size=null;
+    state.explorer.min=null;state.explorer.max=null;updateCells();dirty();status('Expression loaded. Choose a gene in Color by.');
   } finally {busy=false;document.querySelector('.workspace').inert=false;expressionControls();}
 }
 function matches(cell) {
@@ -351,7 +343,7 @@ function renderCellTable() {
     check.checked = cell.visible;
     check.id = "cell-" + i;
     check.onchange = () => {
-      cell.visible = check.checked;
+      cell.manualVisible = check.checked;
       dirty();
       updateCells();
     };
@@ -367,7 +359,18 @@ function renderCellTable() {
     const focus = document.createElement("button");
     focus.textContent = "Locate";
     focus.setAttribute("aria-label", "Locate " + label.textContent);
-    focus.onclick = () => {
+    focus.onclick = () => locateCell(cell);
+    row.append(check, label, focus);
+    $("cell-table").append(row);
+  }
+  if (filtered.length > 150) {
+    const p = document.createElement("p");
+    p.className = "muted";
+    p.textContent = `Showing first 150 of ${filtered.length} matches. Refine the filter to see more.`;
+    $("cell-table").append(p);
+  }
+}
+function locateCell(cell) {
       viewer.setMarker(cell.xyz);
       slices.marker = cell.xyz;
       for (const e of slices.entries) {
@@ -381,31 +384,21 @@ function renderCellTable() {
         slices.load(e);
       }
       status(
-        `Cell ${i + 1} · AP ${cell.xyz[0]} · DV ${cell.xyz[1]} · ML ${cell.xyz[2]} µm`,
+        `Cell ${state.cells.cells.indexOf(cell) + 1} · AP ${cell.xyz[0]} · DV ${cell.xyz[1]} · ML ${cell.xyz[2]} µm`,
       );
-    };
-    row.append(check, label, focus);
-    $("cell-table").append(row);
-  }
-  if (filtered.length > 150) {
-    const p = document.createElement("p");
-    p.className = "muted";
-    p.textContent = `Showing first 150 of ${filtered.length} matches. Refine the filter to see more.`;
-    $("cell-table").append(p);
-  }
 }
 function setupCells() {
   const data=state.cells;$("cell-controls").hidden=!data;
-  $("metadata-search").value='';$("gene-search").value='';$("cell-filter").value='';
+  $("cell-filter").value='';
   $('cell-label').replaceChildren(new Option('Row number',''));
   for(const h of data?.headers||[])$('cell-label').add(new Option(h,h));
   $('cell-label').value=state.labelColumn;
-  $('cell-color').replaceChildren();$('gene-select').replaceChildren();
-  metadataOptions();expressionControls();updateCells();
+  expressionControls();updateCells();
 }
-function acceptRows(rows, units) {
+function acceptRows(rows, units, source={name:"Imported cells",kind:"upload"}) {
   const parsed = parseCells(rows, units, state.manifest.atlas_resolution_um);
   state.cells = parsed;
+  state.dataSource = source;state.explorer=defaults();
   state.expression = null;
   state.coloring = {source:"single",key:""};
   state.labelColumn = parsed.headers.find((h) => h.toLowerCase() === "cell_id") || parsed.headers.find((h) => /name|label/i.test(h)) || "";
@@ -452,7 +445,10 @@ async function importCells(file) {
       throw Error("Table headers must be unique.");
     rows = parsed.data;
   }
-  acceptRows(rows, units);
+  if(state.dataSource?.kind==='example'){
+    parseCells(rows,units,state.manifest.atlas_resolution_um);
+    pendingUpload={rows,units,name:file.name};$("pending-name").textContent=`${file.name} is ready. The example is still displayed.`;$("pending-upload").hidden=false;status("Upload ready. Click Load your uploaded data to replace the example.");
+  }else acceptRows(rows, units,{name:file.name,kind:"upload"});
 }
 function captureView() {
   state.view = { position: viewer.camera.position.toArray(), target: viewer.controls.target.toArray(),
@@ -487,7 +483,7 @@ async function openProjects(files, forceReplace = false) {
     for (const id of state.regions.keys()) viewer.remove(id);
     state.regions.clear(); state.paintColor = data.paintColor; state.mirrorColor = data.mirrorColor;
     for (const r of prepared) { state.regions.set(r.id, r); viewer.add(r); }
-    state.cells = data.cells ?? null; state.labelColumn = data.labelColumn || ''; state.colorColumn = data.colorColumn || ''; state.expression = data.expression || null; state.coloring = activeColoring(data);
+    state.cells = data.cells ?? null; state.labelColumn = data.labelColumn || ''; state.colorColumn = data.colorColumn || ''; state.expression = data.expression || null; state.coloring = activeColoring(data); state.explorer=data.explorer||{...defaults(),palette:'legacy'};state.dataSource=data.dataSource||{name:files[0].name,kind:'restored'};pendingUpload=null;$('pending-upload').hidden=true;
     undo = []; redo = []; active(data.active); setupCells(); startWorkspace();
     if (data.view) {
       viewer.camera.position.fromArray(data.view.position); viewer.controls.target.fromArray(data.view.target); viewer.controls.update();
@@ -497,8 +493,12 @@ async function openProjects(files, forceReplace = false) {
       slices.planes(); viewer.render();
     } else if (data.active) { viewer.focus(data.active); slices.entries.forEach(e => slices.focus(e)); }
     state.dirty = !replace; status('Project restored. Labels, meshes, painted faces and cell data are ready.');
-  } finally { busy = false; document.querySelector(".workspace").inert = false; geneOptions(); search(); }
+  } finally { busy = false; document.querySelector(".workspace").inert = false; search(); }
 }
+let pendingUpload=null;
+const explorer=new CellControls(state,()=>{updateCells();dirty();},locateCell);
+$('load-upload').onclick=()=>{if(!pendingUpload)return;const p=pendingUpload;pendingUpload=null;$('pending-upload').hidden=true;acceptRows(p.rows,p.units,{name:p.name,kind:'upload'});};
+$('cancel-upload').onclick=()=>{pendingUpload=null;$('pending-upload').hidden=true;status('Current dataset retained.');};
 for (const b of document.querySelectorAll("[data-tab]"))
   b.onclick = () => tab(b.dataset.tab);
 for (const b of document.querySelectorAll("[data-mode]"))
@@ -572,12 +572,12 @@ $("example-cells").onclick = () => {
   $("units").value = "mm";
   acceptRows(
     Array.from({ length: 96 }, (_, i) => ({
-      Name: `Cell ${String(i + 1).padStart(2, '0')}`, Dataset: 'Synthetic demonstration',
+      cell_id: `Cell ${String(i + 1).padStart(2, '0')}`, Name: `Cell ${String(i + 1).padStart(2, '0')}`, UMAP1: Math.sin(i)*3+(i%2)*4, UMAP2: Math.cos(i)*3, Dataset: 'Synthetic demonstration',
       Group: i % 2 ? 'Right' : 'Left', AP: +(7.8 + (i % 12) * 0.13).toFixed(2),
       DV: +(3.6 + (Math.floor(i / 12) % 4) * 0.4).toFixed(2),
       ML: +(i % 2 ? 9.5 - (i % 7) * 0.12 : 1.9 + (i % 7) * 0.12).toFixed(2), Tau: +(12 + (i * 7 % 37) * 0.7).toFixed(1)
     })),
-    "mm",
+    "mm", {name:"example_cells",kind:"example"}
   );
 };
 $("cell-label").onchange = () => {
@@ -585,15 +585,9 @@ $("cell-label").onchange = () => {
   updateCells();
   dirty();
 };
-$("cell-color").onchange = () => {if($('cell-color').value)applyColoring('metadata',$('cell-color').value);};
-$('apply-metadata').onclick=()=>applyColoring('metadata',$('cell-color').value);
-$('metadata-search').oninput=metadataOptions;
-$('gene-search').oninput=geneOptions;
-$('gene-select').onchange=()=>{$('apply-gene').disabled=!$('gene-select').value;};
-$('apply-gene').onclick=()=>applyColoring('gene',$('gene-select').value);
-$('clear-cell-color').onclick=()=>applyColoring('single');
-$('expression-file').onchange=async()=>{const file=$('expression-file').files[0];if(!file)return;try{await importExpression(file);}catch(error){fail(error);}finally{$('expression-file').value='';}};
-$('remove-expression').onclick=()=>{state.expression=null;if(state.coloring.source==='gene')state.coloring={source:'single',key:''};expressionControls();updateCells();dirty();};
+$('clear-cell-color').onclick=()=>{state.coloring={source:'single',key:''};state.colorColumn='';explorer.refresh();updateCells();dirty();};
+$('expression-file').onchange=async()=>{const file=$('expression-file').files[0];if(!file)return;try{if(pendingUpload)throw Error('Load your uploaded metadata before adding gene counts.');await importExpression(file);}catch(error){fail(error);}finally{$('expression-file').value='';}};
+$('remove-expression').onclick=()=>{state.expression=null;state.explorer.genes=[];if(state.explorer.size?.source==='gene')state.explorer.size=null;if(state.coloring.source==='gene')state.coloring={source:'single',key:''};expressionControls();updateCells();dirty();};
 $("cell-filter").oninput = renderCellTable;
 for (const [id, visible] of [
   ["show-filtered", true],
@@ -601,7 +595,7 @@ for (const [id, visible] of [
 ])
   $(id).onclick = () => {
     for (const c of state.cells?.cells || [])
-      if (matches(c)) c.visible = visible;
+      if (matches(c)) c.manualVisible = visible;
     updateCells();
     dirty();
   };
@@ -770,7 +764,7 @@ $("remove-all").onclick = () => {
 $("export-html").onclick = async () => {
   if (busy || bulkLoading) return;
   busy = true; status('Preparing standalone interactive HTML…');
-  try { await exportHTML(viewer, state.colorInfo); status('Interactive HTML downloaded. Open it offline or share the file.'); }
+  try { await exportHTML(viewer, state.colorInfo ? {...state.colorInfo,shapeLegend:state.cellChannels?.shapeLegend,sizeLegend:state.cellChannels?.sizeLegend,dataSource:state.dataSource} : null); status('Interactive HTML downloaded. Open it offline or share the file.'); }
   catch (e) { fail(e); } finally { busy = false; }
 };
 $("retry").onclick = init;

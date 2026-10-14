@@ -1,3 +1,4 @@
+import { SHAPES } from './cell-explorer.js';
 import * as T from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { ensureLayers } from "./paint.js";
@@ -257,32 +258,43 @@ export class Viewer {
     this.marker.visible = true;
     this.render();
   }
-  setCells(cells, color) {
+  setCells(cells, color, channels) {
     if (this.cells) {
       this.scene.remove(this.cells);
       this.cells.geometry.dispose();
       this.cells.material.dispose();
     }
     const positions = [],
-      colors = [];
+      colors = [], sizes = [], shapes = [];
     for (const cell of cells || [])
       if (cell.visible) {
         positions.push(...toDisplay(cell.xyz));
         const c = new T.Color(color(cell));
         colors.push(c.r, c.g, c.b);
+        sizes.push(channels?.size(cell)||1);shapes.push(Math.max(0,SHAPES.indexOf(channels?.shape(cell)||"circle")));
       }
     const g = new T.BufferGeometry();
     g.setAttribute("position", new T.Float32BufferAttribute(positions, 3));
     g.setAttribute("color", new T.Float32BufferAttribute(colors, 3));
+    g.setAttribute('cellSize',new T.Float32BufferAttribute(sizes,1));
+    g.setAttribute('cellShape',new T.Float32BufferAttribute(shapes,1));
     this.cells = new T.Points(
       g,
-      new T.PointsMaterial({
-        size: 0.085,
-        vertexColors: true,
-        sizeAttenuation: true,
-        depthTest: false,
-        transparent: true,
-        opacity: 0.95,
+      new T.ShaderMaterial({
+        vertexColors:true,transparent:true,depthTest:false,depthWrite:false,
+        uniforms:{pointScale:{value:42*this.renderer.getPixelRatio()}},
+        vertexShader:`attribute float cellSize; attribute float cellShape;
+          varying vec3 cellColor; varying float symbol;
+          void main(){cellColor=color;symbol=cellShape;vec4 p=modelViewMatrix*vec4(position,1.0);gl_Position=projectionMatrix*p;gl_PointSize=clamp(pointScale*cellSize/max(0.1,-p.z),2.0,64.0);}`.replace('attribute float cellSize;','uniform float pointScale; attribute float cellSize;'),
+        fragmentShader:`varying vec3 cellColor; varying float symbol;
+          void main(){vec2 p=gl_PointCoord*2.0-1.0;
+            if(symbol<0.5 && dot(p,p)>1.0)discard;
+            if(symbol>1.5 && symbol<2.5 && (p.y < -1.0 || abs(p.x)>(p.y+1.0)*0.5))discard;
+            if(symbol>2.5 && symbol<3.5 && abs(p.x)+abs(p.y)>1.0)discard;
+            if(symbol>3.5 && min(abs(p.x),abs(p.y))>0.34)discard;
+            gl_FragColor=vec4(cellColor,0.95);
+            #include <colorspace_fragment>
+          }`
       }),
     );
     this.cells.renderOrder = 9;

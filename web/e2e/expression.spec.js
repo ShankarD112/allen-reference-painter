@@ -2,7 +2,8 @@ import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { unzipSync, strFromU8 } from "fflate";
 import { Color } from "three";
-import { heatColor } from "../core.js";
+import {interpolate,SCALES} from "../cell-explorer.js";
+const heatColor=(v,range)=>interpolate(SCALES.viridis,(v-range[0])/(range[1]-range[0]));
 
 test("metadata and gene coloring: ID matching, atomic imports, ZIP resume and offline sharing", async ({
   page,
@@ -26,8 +27,8 @@ test("metadata and gene coloring: ID matching, atomic imports, ZIP resume and of
   };
   await page.locator("#cell-file").setInputFiles(cells);
   await expect(page.locator("#cell-summary")).toContainText("4 of 4");
-  await page.locator("#metadata-search").fill("MECvs");
-  await page.locator("#apply-metadata").click();
+  await page.locator("#color-search").fill("MECvs");
+  await page.locator("#apply-color").click();
   await expect(page.locator("#active-coloring")).toHaveAttribute(
     "data-source",
     "metadata",
@@ -46,12 +47,12 @@ test("metadata and gene coloring: ID matching, atomic imports, ZIP resume and of
   await expect(page.locator("#expression-summary")).toContainText(
     "2 genes · 3 / 4",
   );
-  await page.locator("#gene-search").fill("0610006");
+  await page.locator("#color-search").fill("0610006");
   await expect(page.locator("#active-coloring")).toHaveAttribute(
     "data-source",
     "metadata",
   );
-  await page.locator("#apply-gene").click();
+  await page.locator("#apply-color").click();
   await expect(page.locator("#active-coloring")).toHaveText(
     "Gene · 0610006L08Rik",
   );
@@ -75,12 +76,11 @@ test("metadata and gene coloring: ID matching, atomic imports, ZIP resume and of
     "data-source",
     "gene",
   );
-  await page.locator("#apply-metadata").click();
-  await expect(page.locator("#active-coloring")).toHaveAttribute(
-    "data-source",
-    "metadata",
-  );
-  await page.locator("#apply-gene").click();
+  await page.locator("#color-search").fill("MECvs");
+  await page.locator("#apply-color").click();
+  await expect(page.locator("#active-coloring")).toHaveAttribute("data-source","metadata");
+  await page.locator("#color-search").fill("0610006");
+  await page.locator("#apply-color").click();
   await page.screenshot({
     path: testInfo.outputPath("gene-coloring.png"),
     fullPage: true,
@@ -136,7 +136,7 @@ test("metadata and gene coloring: ID matching, atomic imports, ZIP resume and of
     "data-source",
     "single",
   );
-  await page.locator("#cell-color").selectOption("x");
+  await page.locator("#color-by").selectOption(JSON.stringify(["metadata","x"]));
   await page.locator('[data-tab="export"]').click();
   await page
     .locator("#project-file")
@@ -150,8 +150,8 @@ test("metadata and gene coloring: ID matching, atomic imports, ZIP resume and of
   await expect(page.locator("#active-coloring")).toHaveText(
     "Gene · 0610006L08Rik",
   );
-  await page.locator("#gene-search").fill("OtherGene");
-  await page.locator("#apply-gene").click();
+  await page.locator("#color-search").fill("OtherGene");
+  await page.locator("#apply-color").click();
   await expect(page.locator("#active-coloring")).toHaveText("Gene · OtherGene");
   expect(errors).toEqual([]);
 });

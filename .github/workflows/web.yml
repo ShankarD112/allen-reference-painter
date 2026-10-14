@@ -34,4 +34,6 @@ jobs:
         if: always()
         with:
           name: browser-verification
-          path: test-results/
+          path: |
+            test-results/
+            dist/reference-painter.html

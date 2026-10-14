@@ -899,3 +899,14 @@ label,
 .category-legend i {width:12px;height:12px;flex-shrink:0;border-radius:3px;}
 #expression-details {font-size:12px;} #expression-unmatched {overflow-wrap:anywhere;}
 #active-coloring {border-left:3px solid var(--teal);font-weight:600;}
+/* Cell explorer: consistent groups, paired uploads and persistent source context. */
+.dataset-badge{font-size:12px;background:#e9f5f5;border:1px solid #b5dada;border-radius:20px;padding:7px 12px;margin-left:auto;max-width:42%;overflow-wrap:anywhere}
+.data-uploads{display:grid;grid-template-columns:1fr 1fr;gap:8px}.data-uploads .upload{margin:0;min-width:0;padding:12px 6px;overflow-wrap:anywhere}.data-uploads .upload span{font-size:10px}
+.clip-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px}.clip-fields input,.clip-fields select{min-width:0;width:100%}
+.custom-swatches{display:flex;gap:8px}.custom-swatches input{width:52px;height:34px;padding:2px}
+.control-group{border-top:1px solid var(--line,#d5e0e8);margin-top:18px;padding-top:14px}.control-group>summary{font-weight:650;cursor:pointer;margin-bottom:12px}
+.channel-legend{max-height:140px;overflow:auto;font-size:11px;margin:8px 0 16px}.channel-key{display:flex;align-items:center;gap:5px}.channel-key canvas{width:30px;height:24px;flex-shrink:0}
+.table-scroll{overflow:auto;max-height:240px}.table-scroll table{width:100%;border-collapse:collapse;font-size:11px}.table-scroll th,.table-scroll td{text-align:left;padding:5px;border-bottom:1px solid #d9e4eb}.table-scroll button{padding:5px;overflow-wrap:anywhere}.table-scroll button[aria-pressed=true]{background:#c7eeee}
+#filter-list fieldset{border:1px solid #d4e2e9;border-radius:8px;padding:9px;margin:12px 0;min-width:0}#filter-list legend{font-size:12px;overflow-wrap:anywhere}.category-toggles{max-height:160px;overflow:auto}.category-toggles label{display:flex;align-items:center;gap:8px;margin:8px 0}.category-toggles input{width:auto}.histogram{width:100%;height:70px}#filter-list output{font-size:11px;display:block}#clip-error{font-size:12px;color:#b23a35}
+#embedding{width:100%;height:auto;cursor:crosshair;border:1px solid #d5e0e8;border-radius:6px}.data-uploads+p{font-size:11px}
+@media(max-width:600px){.dataset-badge{max-width:48%;font-size:10px;padding:5px}header{flex-wrap:wrap;gap:6px}}

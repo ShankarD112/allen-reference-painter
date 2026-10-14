@@ -145,3 +145,50 @@ Browser tests exercise real pointer painting, mirroring, undo/redo, cell
 visibility, analysis ZIPs, editable project reopening, slices, import rejection,
 and a narrow viewport. User acceptance on a physical GPU and representative
 large cell datasets remains necessary before replacing the desktop release.
+
+
+## Cell explorer controls (2026-10)
+
+The paired Data uploads show each file's status. A persistent Showing badge names
+all loaded datasets, including the synthetic example. Uploading metadata while
+viewing the example stages the validated file: choose **Load your uploaded data**
+to activate it, or keep the current data. Load pending metadata before its counts.
+
+**Color by** searches genes and metadata in one grouped dropdown, with continuous
+or categorical type labels. Continuous values support viridis, magma, plasma,
+red-blue, grayscale, original, and custom two/three-stop scales. Min/max clipping
+changes only displayed colors; source values and filters are unchanged. Empty
+bounds use the data extent. The scale includes hidden cells for stability.
+
+Shape uses categorical metadata; five symbols repeat for larger category sets,
+with a notice. Size accepts numeric genes/metadata or discrete metadata categories;
+missing sizes have their own legend entry. Both default to None. The same color,
+shape and size encodings appear in 3D, slices and the optional embedding scatterplot.
+The embedding uses uploaded numeric columns (preferring UMAP1/UMAP2); it does not
+compute UMAP or t-SNE. Click a point or use Locate in the cell list to mark its
+atlas coordinates and synchronize slices.
+
+The collapsible summary reports category count, percent of all loaded cells and
+visible count. Clicking a row isolates that category without changing manual
+visibility. Category toggles and up to 50 gene ranges combine with AND. Each gene
+has a histogram, draggable lower/upper sliders and exact numeric bounds. Missing
+expression fails a gene filter. Histograms describe all measured metadata cells,
+not just filtered cells. Clearing filters preserves manual Show/Hide choices.
+
+Version-4 projects retain source identity, encodings, clipping, filters, summary
+selection, embedding axes and manual visibility. Versions 1–3 remain readable.
+Full scene ZIPs include these settings; ROI exports still exclude cells. Standalone
+HTML keeps the displayed point geometry, colors, shapes, sizes and legends.
+
+### One-file application code
+
+`npm run build` also produces `dist/reference-painter.html`, containing all app
+JavaScript, CSS, dependencies and the offline export runtime in one HTML file.
+Serve this file over HTTP(S) beside the generated `data/` atlas directory. The
+316 MB atlas remains external scientific data; it is not embedded in the code.
+The normal modular source remains the maintainable source of truth. CI uploads
+the single-file build with its browser verification artifacts.
+
+Polish: paired upload cards, consistent form spacing and labels, compact channel
+legends, collapsible analysis groups, a persistent source badge, accessible field
+labels, and visible active/total cell counts.

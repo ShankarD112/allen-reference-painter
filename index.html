@@ -22,7 +22,7 @@
       >
       <div class="header-note"></div>
       <button id="help">Help</button>
-    </header>
+    <span id="dataset-badge" class="dataset-badge" role="status">Showing: no cell data</span></header>
     <main class="workspace">
       <aside class="sidebar">
         <nav class="tabs" aria-label="Workspace tools">
@@ -125,43 +125,39 @@
             <option value="um">Micrometres (µm)</option>
             <option value="mm">Millimetres (mm)</option>
             <option value="voxel">Voxel indices (25 µm)</option></select
-          ><label class="upload" for="cell-file"
-            ><strong>Import cell table</strong><span>CSV, TSV, TXT or XLSX</span
-            ><input
-              id="cell-file"
-              type="file"
-              accept=".csv,.tsv,.txt,.xlsx" /></label
-          ><button id="example-cells" class="wide">
-            Load 96 example cells (mm)
-          </button>
+          >
+          <h2>Data</h2>
+          <div class="data-uploads">
+            <label class="upload" for="cell-file"><strong>Metadata</strong><span>CSV / TSV / TXT / XLSX</span><input id="cell-file" type="file" accept=".csv,.tsv,.txt,.xlsx"><span id="metadata-status">No metadata loaded</span></label>
+            <label class="upload" for="expression-file"><strong>Gene counts</strong><span>Genes × cell IDs</span><input id="expression-file" type="file" accept=".csv,.tsv,.txt,.xlsx"><span id="expression-summary">No expression file loaded.</span></label>
+          </div>
+          <p class="muted">Metadata: cell_id and coordinates. Counts: gene names in the first column; matching cell IDs in the header. Values are not normalized.</p>
+          <div id="pending-upload" class="note" hidden><p id="pending-name"></p><button id="load-upload" class="wide">Load your uploaded data</button><button id="cancel-upload" class="wide">Keep current data</button></div>
+          <button id="example-cells" class="wide">Load 96 example cells (mm)</button>
+          <details id="expression-details" hidden><summary>Cell ID matching details</summary><p id="expression-unmatched" class="muted"></p></details>
+          <button id="remove-expression" class="wide" hidden>Remove expression data</button>
           <div id="cell-controls" hidden>
-            <p id="cell-summary" class="note"></p>
-            <label for="cell-label">Cell labels</label
-            ><select id="cell-label"></select
-            >
+            <p id="cell-summary" class="note" role="status"></p>
+            <label for="cell-label">Cell labels</label><select id="cell-label"></select>
+            <h2>Visual encoding</h2>
             <p id="active-coloring" class="note" role="status">Single color</p>
-            <h2>Color by metadata</h2>
-            <label for="metadata-search">Search metadata fields</label>
-            <input id="metadata-search" type="search" placeholder="MECvsLEC, Tau, genotype…">
-            <label for="cell-color">Metadata field</label>
-            <select id="cell-color"></select>
-            <button id="apply-metadata" class="wide">Apply metadata color</button>
-            <h2>Color by gene</h2>
-            <label class="upload compact" for="expression-file"><strong>Upload gene expression</strong><span>CSV / TSV / TXT / XLSX · genes × cells</span><input id="expression-file" type="file" accept=".csv,.tsv,.txt,.xlsx"></label>
-            <p class="muted">First column: gene names. Header: cell IDs matching <code>cell_id</code>. Values are used as supplied; no normalization is applied.</p>
-            <p id="expression-summary" class="note" aria-live="polite">No expression file loaded.</p>
-            <details id="expression-details" hidden><summary>Cell ID matching details</summary><p id="expression-unmatched" class="muted"></p></details>
-            <label for="gene-search">Search genes</label>
-            <input id="gene-search" type="search" placeholder="Search gene name or ID…" disabled>
-            <label for="gene-select">Gene</label><select id="gene-select" disabled></select>
-            <p id="gene-count" class="muted"></p>
-            <button id="apply-gene" class="wide" disabled>Apply gene color</button>
+            <label for="color-search">Search Color by</label><input id="color-search" type="search" placeholder="Find genes or metadata…">
+            <label for="color-by">Color by</label><select id="color-by"></select><p id="variable-count" class="muted"></p><button id="apply-color" class="wide">Apply color</button>
             <button id="clear-cell-color" class="wide">Use single color</button>
-            <button id="remove-expression" class="wide" hidden>Remove expression data</button>
-            <p class="muted">Applying metadata replaces gene coloring, and vice versa. Missing values are gray; zero expression is a measured value.</p>
-            <div id="color-legend" hidden><div class="gradient"></div><div id="color-range" class="field-row"></div></div>
-            <div id="category-legend" class="category-legend"></div>
-            <p id="color-missing" class="muted"></p>
+            <div id="palette-settings" hidden>
+              <label for="palette">Continuous color scale</label><select id="palette"></select>
+              <div id="custom-colors" hidden><label for="custom-count">Number of colors</label><select id="custom-count"><option value="2">2</option><option value="3">3</option></select><div class="custom-swatches"><input id="custom-0" type="color" aria-label="Low color"><input id="custom-1" type="color" aria-label="Middle or high color"><input id="custom-2" type="color" aria-label="High color"></div></div>
+              <div class="clip-fields"><label>Minimum<input id="clip-min" type="number" step="any" placeholder="Auto"></label><label>Maximum<input id="clip-max" type="number" step="any" placeholder="Auto"></label></div>
+              <p id="clip-error" role="alert"></p><button id="reset-clip" class="wide">Reset to data range</button>
+            </div>
+            <div id="color-legend" hidden aria-label="Color legend"><div class="gradient"></div><div id="color-range" class="field-row"></div></div>
+            <div id="category-legend" class="category-legend"></div><p id="color-missing" class="muted"></p>
+            <label for="shape-by">Shape by · categorical metadata</label><select id="shape-by"></select><div id="shape-legend" class="channel-legend"></div>
+            <label for="size-search">Search Size by</label><input id="size-search" type="search" placeholder="Find genes or metadata…"><label for="size-by">Size by</label><select id="size-by"></select><div id="size-legend" class="channel-legend"></div>
+            <details class="control-group"><summary>Embedding plot</summary><div class="clip-fields"><label>X axis<select id="embedding-x"></select></label><label>Y axis<select id="embedding-y"></select></label></div><canvas id="embedding" width="600" height="360" aria-label="Cell embedding plot"></canvas><p id="embedding-note" class="muted"></p></details>
+            <details class="control-group"><summary>Cell summary</summary><label for="summary-by">Summarize by metadata</label><select id="summary-by"></select><p class="muted">Click a category to isolate it; click again to clear. Percentages use all loaded cells.</p><button id="clear-isolate" hidden>Clear category isolation</button><div class="table-scroll"><table><thead><tr><th>Category</th><th>Cells</th><th>Total %</th><th>Visible</th></tr></thead><tbody id="summary-rows"></tbody></table></div></details>
+            <details class="control-group"><summary>Filters · categories and genes</summary><label for="category-by">Metadata category filter</label><select id="category-by"></select><button id="add-category" class="wide">Add category filter</button><label for="filter-gene-search">Search genes to filter</label><input id="filter-gene-search" type="search"><label for="filter-gene">Gene filter</label><select id="filter-gene"></select><button id="add-gene-filter" class="wide">Add gene range</button><div id="filter-list"></div><p id="filter-note" class="muted"></p><button id="clear-filters" class="wide">Clear all filters</button></details>
+            <h2>Cell list · Locate</h2>
             <label for="cell-filter">Filter rows</label
             ><input
               id="cell-filter"

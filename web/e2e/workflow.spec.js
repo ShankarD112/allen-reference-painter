@@ -50,7 +50,7 @@ test("real atlas: search, paint, mirror, undo, cells, export and project reload"
   if (await page.locator("#start").isVisible()) await page.locator("#start").click();
   await page.locator('[data-tab="cells"]').click();
   await page.locator("#example-cells").click();
-  await page.locator("#cell-color").selectOption("Tau");
+  await page.locator("#color-by").selectOption(JSON.stringify(["metadata","Tau"]));
   await expect(page.locator("#cell-summary")).toContainText("96 of 96");
   await page.locator("#cell-filter").fill("Cell 02");
   await page.locator("#hide-filtered").click();
@@ -163,7 +163,7 @@ test('home, alphabetic regions, labeled ZIP resume/merge and standalone offline 
   const [roi] = await Promise.all([page.waitForEvent('download'),page.locator('#export-roi').click()]);
   const bytes = await readFile(await roi.path());
   const project = JSON.parse(strFromU8(unzipSync(new Uint8Array(bytes))['project.json']));
-  expect(project.version).toBe(3); expect(project.regions[0].layers).toHaveLength(2);
+  expect(project.version).toBe(4); expect(project.regions[0].layers).toHaveLength(2);
   expect(project.regions[0].layers[0].tags).toBe('animal-01, treatment');
   const file = {name:'animal-01.zip',mimeType:'application/zip',buffer:bytes};
   await page.locator('#project-file').setInputFiles(file);
