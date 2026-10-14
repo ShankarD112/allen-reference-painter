@@ -910,3 +910,4 @@ label,
 #filter-list fieldset{border:1px solid #d4e2e9;border-radius:8px;padding:9px;margin:12px 0;min-width:0}#filter-list legend{font-size:12px;overflow-wrap:anywhere}.category-toggles{max-height:160px;overflow:auto}.category-toggles label{display:flex;align-items:center;gap:8px;margin:8px 0}.category-toggles input{width:auto}.histogram{width:100%;height:70px}#filter-list output{font-size:11px;display:block}#clip-error{font-size:12px;color:#b23a35}
 #embedding{width:100%;height:auto;cursor:crosshair;border:1px solid #d5e0e8;border-radius:6px}.data-uploads+p{font-size:11px}
 @media(max-width:600px){.dataset-badge{max-width:48%;font-size:10px;padding:5px}header{flex-wrap:wrap;gap:6px}}
+@media(max-width:650px){header{height:auto;min-height:68px;padding:10px 14px;flex-wrap:wrap;gap:8px}.dataset-badge{flex-basis:100%;max-width:100%;margin-left:0}}
