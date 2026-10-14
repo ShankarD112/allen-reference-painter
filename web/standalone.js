@@ -36,7 +36,12 @@ resize();
 if(data.cellColoring){
  const info=data.cellColoring,host=document.getElementById('cell-color-legend');
  const title=document.createElement('h2');title.style.fontSize='14px';title.textContent=info.label;host.append(title);
- if(info.range){const bar=document.createElement('div');bar.style.cssText='height:8px;background:linear-gradient(90deg,#2c70b4,#3dd1be,#ffd966);border-radius:4px';const range=document.createElement('p');range.textContent=info.range.join(' – ');host.append(bar,range);}
+ if(info.range){const bar=document.createElement('div');bar.style.cssText='height:8px;background:linear-gradient(90deg,'+(info.stops||['#2c70b4','#3dd1be','#ffd966']).join(',')+');border-radius:4px';const range=document.createElement('p');range.textContent=info.range.join(' – ');host.append(bar,range);}
  for(const category of info.categories){const row=document.createElement('p');row.textContent=category.label;row.style.borderLeft='6px solid '+category.color;row.style.paddingLeft='8px';host.append(row);}
  if(info.source!=='single'){const missing=document.createElement('p');missing.textContent=info.missing+' cells with missing values (gray).';host.append(missing);}
+}
+
+if(data.cellColoring){const info=data.cellColoring,host=document.getElementById('cell-color-legend');
+ if(info.dataSource){const source=document.createElement('p');source.textContent='Showing: '+info.dataSource.name;host.prepend(source);}
+ for(const [title,items] of [['Shape',info.shapeLegend],['Size',info.sizeLegend]])if(items?.length){const h=document.createElement('h3');h.textContent=title;host.append(h);for(const item of items){const p=document.createElement('p');p.textContent=item.label+' · '+(item.shape||Number(item.size).toFixed(2)+'×');host.append(p);}}
 }

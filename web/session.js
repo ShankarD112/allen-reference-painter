@@ -54,6 +54,8 @@ export async function readProject(file, manifest) {
     data.expression=parseExpressionRows(matrix.data,data.cells,scene.expression_file);
   }
   if(scene.cell_coloring)data.coloring=scene.cell_coloring;
+  if(scene.cell_encoding)data.explorer=scene.cell_encoding;
+  if(scene.cell_data_source)data.dataSource=scene.cell_data_source;
   return validateProject(data, manifest);
 }
 export function mergeProjects(base, incoming, sourceName) {
@@ -88,6 +90,8 @@ export function mergeProjects(base, incoming, sourceName) {
   output.expression=mergeExpression(output.expression,incoming.expression);
   if(output.expression)matchExpression(output.expression,output.cells);
   if(!hadCells&&incoming.cells){output.coloring=activeColoring(incoming);output.colorColumn=incoming.colorColumn||'';output.labelColumn=incoming.labelColumn||'';}
+  if(!hadCells&&incoming.cells){output.explorer=incoming.explorer;output.dataSource=incoming.dataSource;}
+  else if(hadCells&&incoming.cells)output.dataSource={name:'Combined datasets',kind:'combined'};
   output.active ??= incoming.active;
   return output;
 }

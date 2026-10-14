@@ -1,3 +1,4 @@
+import {validateExplorer} from './cell-explorer.js';
 import {activeColoring,validateExpression,validateColoring} from './expression.js';
 import { zipSync, strToU8 } from "fflate";
 import { csv, ply, geometryHash } from "./core.js";
@@ -112,6 +113,7 @@ export async function exportAnalysis(state, activeOnly) {
     manifest.cell_label_column = state.labelColumn;
     manifest.cell_color_column = activeColoring(state).source === 'metadata' ? activeColoring(state).key : '';
     manifest.cell_coloring = activeColoring(state);
+    manifest.cell_encoding=state.explorer;manifest.cell_data_source=state.dataSource;
     if(state.expression){manifest.expression_file='gene_expression.csv';manifest.expression_orientation='genes_by_cells';manifest.expression_cell_id_column='cell_id';manifest.expression_values='as supplied; no normalization';add(manifest.expression_file,csv([['gene',...state.expression.cellIds],...state.expression.genes.map((gene,i)=>[gene,...state.expression.values[i]])]));}
     manifest.selected_cell_count = imported.cells.filter(
       (c) => c.visible,
@@ -133,6 +135,7 @@ export async function exportAnalysis(state, activeOnly) {
     project.regions = project.regions.filter(r => r.id === state.active);
     project.cells = null;
     project.expression = null;
+    delete project.explorer;delete project.dataSource;
     project.coloring = {source:'single',key:''};
     project.colorColumn = '';
     project.labelColumn = '';
@@ -148,7 +151,7 @@ export async function exportAnalysis(state, activeOnly) {
 export function projectData(state) {
   return {
     format: "allen-reference-painter-project",
-    version: 3,
+    version: 4,
     atlas: state.manifest.atlas,
     atlas_version: state.manifest.atlas_version,
     active: state.active,
@@ -159,6 +162,8 @@ export function projectData(state) {
     colorColumn: state.colorColumn,
     cells: state.cells,
     expression: state.expression || null,
+    explorer: state.explorer,
+    dataSource: state.dataSource,
     coloring: activeColoring(state),
     regions: [...state.regions.values()].map((r) => ({
       id: r.id,
@@ -176,7 +181,7 @@ export function projectData(state) {
 export function validateProject(data, manifest) {
   if (
     data?.format !== "allen-reference-painter-project" ||
-    ![1, 2, 3].includes(data.version) ||
+    ![1, 2, 3, 4].includes(data.version) ||
     data.atlas !== manifest.atlas ||
     data.atlas_version !== manifest.atlas_version ||
     !Array.isArray(data.regions)
@@ -254,8 +259,11 @@ export function validateProject(data, manifest) {
       )
         throw Error("Invalid cell coordinates in project.");
   }
+  if(data.dataSource!==undefined && data.dataSource!==null && (typeof data.dataSource.name!=='string'||!['upload','example','restored','combined'].includes(data.dataSource.kind)))throw Error('Invalid data source.');
   if(data.expression !== undefined && data.expression !== null)validateExpression(data.expression,data.cells);
   if(data.coloring !== undefined)validateColoring(data.coloring,data.cells,data.expression);
+  if(data.explorer!==undefined)data.explorer=validateExplorer(data.explorer,data.cells,data.expression);
+  if(data.cells?.cells.some(c=>c.manualVisible!==undefined&&typeof c.manualVisible!=='boolean'))throw Error('Invalid manual cell visibility.');
   if (data.view !== undefined) {
     const v = data.view;
     if (!v || !Array.isArray(v.position) || !Array.isArray(v.target) || v.position.length !== 3 || v.target.length !== 3 ||

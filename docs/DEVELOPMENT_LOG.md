@@ -168,3 +168,15 @@ ROI-only exports continue to exclude cell data. Browser memory is bounded by a
 Local expression/layer tests (12) and both Vite builds pass. Full atlas and
 browser integration validation runs in PR #6, including invalid import recovery,
 color-source switching, ID order independence, ZIP resume and offline HTML.
+
+
+## Cell explorer — 2026-10-14
+
+Added grouped Color by, configurable continuous scales/clipping, independent
+shape/size, explicit dataset provenance and example-to-upload handoff, metadata
+summaries, AND category/gene histogram filters, and an embedding view with Locate.
+Filtering preserves manual visibility. Version-4 projects preserve these settings;
+old projects use the original palette. Point encodings serialize into shared HTML.
+The build now generates one complete HTML code deliverable alongside external
+atlas data. Validation includes pure data/round-trip tests and browser coverage
+for the entire cell workflow plus existing paint/export regressions.

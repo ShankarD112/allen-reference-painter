@@ -1,3 +1,4 @@
+import {drawSymbol} from './cell-explorer.js';
 import { loadSlice } from "./atlas.js";
 export class Slices {
   constructor(manifest, state, viewer, status) {
@@ -180,18 +181,10 @@ export class Slices {
     octx.putImageData(im, 0, 0);
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(off, x, y, e.width * scale, e.height * scale);
-    const dot = (xyz, color, r) => {
+    const dot = (xyz, color, r, shape="circle") => {
       if (Math.abs(xyz[e.axis] - e.index * 25) > 50) return;
-      ctx.beginPath();
       ctx.fillStyle = color;
-      ctx.arc(
-        x + (xyz[e.h] / 25) * scale,
-        y + (xyz[1] / 25) * scale,
-        r * dpr,
-        0,
-        Math.PI * 2,
-      );
-      ctx.fill();
+      drawSymbol(ctx,x + (xyz[e.h] / 25) * scale,y + (xyz[1] / 25) * scale,r*dpr,shape);
     };
     for (const r of this.state.regions.values()) if (r.visible)
       for (const layer of r.layers || []) if (layer.visible) {
@@ -199,7 +192,7 @@ export class Slices {
         for (const id of layer.painted) dot(r.centroids.slice(id * 3, id * 3 + 3), mirrored.has(id) ? layer.mirrorColor : layer.color, 1.3);
       }
     for (const c of this.state.cells?.cells || [])
-      if (c.visible) dot(c.xyz, this.state.cellColor(c), 2.3);
+      if (c.visible) dot(c.xyz, this.state.cellColor(c), 2.3*(this.state.cellChannels?.size(c)||1),this.state.cellChannels?.shape(c));
     const other = this.entries.find((a) => a !== e);
     ctx.setLineDash([3 * dpr, 3 * dpr]);
     ctx.lineWidth = dpr;
