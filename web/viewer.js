@@ -1,3 +1,4 @@
+import {nearestCell,showCellHover,hideCellHover} from './cell-hover.js';
 import { SHAPES } from './cell-explorer.js';
 import * as T from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -26,7 +27,7 @@ export class Viewer {
     this.controls.enableDamping = false;
     this.controls.minDistance = 0.5;
     this.controls.maxDistance = 60;
-    this.controls.addEventListener("change", () => this.render());
+    this.controls.addEventListener("change", () => {hideCellHover();this.render();});
     this.scene.add(new T.HemisphereLight(0xcfefff, 0x52687d, 2.2));
     const key = new T.DirectionalLight(0xfff4dd, 2.7);
     key.position.set(5, 12, 8);
@@ -72,6 +73,7 @@ export class Viewer {
       callbacks.paint(hit);
     });
     el.addEventListener("pointermove", (e) => {
+      if(this.mode==='navigate'&&!e.buttons)showCellHover(this.cellAt(e),e);else hideCellHover();
       const hit = this.hit(e);
       this.brush.visible = !!hit && this.mode !== 'navigate';
       if (hit) {
@@ -79,10 +81,10 @@ export class Viewer {
         this.brush.position.set(...toDisplay(hit.point));
         this.brush.scale.setScalar(Number(document.getElementById('radius').value) / 1000);
       }
-      this.render();
+      if(this.mode!=="navigate")this.render();
       if (this.drawing && hit) callbacks.paint(hit);
     });
-    el.addEventListener("pointerleave", () => { this.brush.visible = false; this.render(); });
+    el.addEventListener("pointerleave", () => { hideCellHover();this.brush.visible = false; this.render(); });
     const end = () => {
       if (this.drawing) {
         this.drawing = false;
@@ -104,6 +106,7 @@ export class Viewer {
     this.resize.observe(host);
   }
   render() {
+    this.cellProjection=null;
     this.renderer.render(this.scene, this.camera);
   }
   setMode(mode) {
@@ -258,7 +261,26 @@ export class Viewer {
     this.marker.visible = true;
     this.render();
   }
+  cellAt(event) {
+    if(!this.cells)return null;
+    const rect=this.renderer.domElement.getBoundingClientRect();
+    if(!this.cellProjection){
+      const points=[],v=new T.Vector3(),position=this.cells.geometry.attributes.position;
+      this.camera.updateMatrixWorld();
+      for(let i=0;i<position.count;i++){
+        v.fromBufferAttribute(position,i).applyMatrix4(this.camera.matrixWorldInverse);
+        const depth=-v.z,size=this.cells.geometry.attributes.cellSize.getX(i),dpr=this.renderer.getPixelRatio();
+        const radius=Math.max(2,Math.min(64,42*dpr*size/Math.max(.1,depth)))/(2*dpr);
+        v.applyMatrix4(this.camera.projectionMatrix);
+        if(v.z < -1||v.z > 1||Math.abs(v.x)>1||Math.abs(v.y)>1)continue;
+        points.push({cell:this.visibleCells[i],x:(v.x+1)*rect.width/2,y:(1-v.y)*rect.height/2,radius});
+      }
+      this.cellProjection=points;
+    }
+    return nearestCell(this.cellProjection,event.clientX-rect.left,event.clientY-rect.top);
+  }
   setCells(cells, color, channels) {
+    this.visibleCells=(cells||[]).filter(cell=>cell.visible);
     if (this.cells) {
       this.scene.remove(this.cells);
       this.cells.geometry.dispose();

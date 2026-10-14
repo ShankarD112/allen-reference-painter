@@ -180,3 +180,13 @@ old projects use the original palette. Point encodings serialize into shared HTM
 The build now generates one complete HTML code deliverable alongside external
 atlas data. Validation includes pure data/round-trip tests and browser coverage
 for the entire cell workflow plus existing paint/export regressions.
+
+
+## Help, cell hover and unbranded UI — 2026-10-14
+
+Expanded Help into searchable tool-specific topics. Added a shared, text-safe
+cell tooltip for 3D navigation, slices and embedding; hidden cells are excluded,
+and hit testing uses screen-space distances. Kept painting and Locate behavior.
+Removed decorative logo marks and the favicon, and replaced symbolic action
+labels with text. Added browser coverage for guide search, dismissal, hover across
+views, ID fallback, filtering, markup safety and mobile Help layout.
