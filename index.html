@@ -9,15 +9,11 @@
       content="Explore the Allen mouse atlas, paint surface ROIs, compare cells and export atlas-space data in your browser."
     />
     <title>Allen Reference Painter</title>
-    <link
-      rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%230d1b2b'/%3E%3Cpath d='M20 8C5 8 5 32 20 32M20 8C35 8 35 32 20 32M20 8V32M10 16L17 20M30 16L23 20' stroke='%235ee5ce' stroke-width='3' fill='none'/%3E%3C/svg%3E"
-    />
+    <link rel="icon" href="data:," />
   </head>
   <body class="home">
     <header>
       <a class="brand" href="./" aria-label="Allen Reference Painter home"
-        ><span class="brand-icon" aria-hidden="true">◉</span
         ><span>Reference Painter<small>ALLEN MOUSE ATLAS</small></span></a
       >
       <div class="header-note"></div>
@@ -204,8 +200,7 @@
           </button>
         </div>
         <div class="sidebar-footer">
-          <span class="local-icon">◇</span
-          ><span>Local files. No account needed.</span>
+          <span>Local files. No account needed.</span>
         </div>
       </aside>
       <section class="stage" aria-label="3D atlas workspace">
@@ -315,49 +310,25 @@
       <span id="status" role="status" aria-live="polite">Loading atlas…</span
       ><span>AP · DV · ML / µm</span>
     </footer>
-    <dialog id="help-dialog">
-      <button id="close-help" class="dialog-close" aria-label="Close help">
-        ×
-      </button>
-      <p class="eyebrow">REFERENCE PAINTER</p>
-      <h2>A browser workspace for your atlas.</h2>
-      <ol>
-        <li>
-          <strong>Regions:</strong> search a name or acronym, then load a
-          surface.
-        </li>
-        <li>
-          <strong>Paint:</strong> choose a brush, paint a patch, and optionally
-          mirror it.
-        </li>
-        <li>
-          <strong>Cells:</strong> choose units, then import AP/DV/ML or x/y/z
-          coordinates.
-        </li>
-        <li>
-          <strong>Export:</strong> download analysis files or save an editable
-          project.
-        </li>
-      </ol>
-      <p>
-        Painting selects surface triangles; it does not create a volumetric
-        segmentation. Face IDs refer to the exact packaged BrainGlobe 3.1 mesh.
-        Coordinates use the atlas origin, not bregma.
-      </p>
-      <p>
-        All work stays in this browser unless you download and share it. Save
-        your project before leaving.
-      </p>
-      <p class="muted">
-        Independent project; not an Allen Institute product. Atlas: Wang et al.
-        (2020),
-        <a
-          href="https://doi.org/10.1016/j.cell.2020.04.007"
-          target="_blank"
-          rel="noreferrer"
-          >Cell</a
-        >. <a href="./THIRD_PARTY_NOTICES.txt">Data and code notices</a>.
-      </p>
+    <dialog id="help-dialog" aria-labelledby="help-title">
+      <button id="close-help" class="dialog-close" aria-label="Close help">Close</button>
+      <p class="eyebrow">REFERENCE PAINTER GUIDE</p>
+      <h2 id="help-title">Explore, compare, paint and save.</h2>
+      <label for="help-search">Find a tool or topic</label><input id="help-search" type="search" placeholder="Try gene filters, Locate, export…">
+      <p id="help-empty" hidden>No matching topic. Try “cells”, “paint” or “export”.</p>
+      <div id="help-topics">
+        <details open><summary>Quick start</summary><ol><li>Choose <strong>Start painting</strong> for a new workspace, or <strong>Upload saved work</strong> to resume a project.</li><li>Load atlas regions in Regions, or choose source units and upload cell metadata in Cells. Try the synthetic example first if needed.</li><li>Add optional gene counts, choose Color by, then explore cells with filters, the embedding plot and Locate.</li><li>Save an editable project or a full scene ZIP before closing. There is no automatic save.</li></ol></details>
+        <details><summary>Regions and 3D navigation</summary><p>Search by name, acronym or structure ID. The main-region dropdown narrows the alphabetical results. Load a region, select its row to make it active, and use visibility, color and opacity controls to compare surfaces. Load matching regions in bulk or cancel an ongoing bulk load. Large meshes can use substantial memory.</p><p>In Navigate mode, drag to orbit, scroll to zoom and right-drag to pan. Use 3D, Coronal, Sagittal or Dorsal for preset views, and Focus for the active region. Reference shell and slice-plane controls change the context around your regions.</p></details>
+        <details><summary>Painting, layers and undo</summary><p>Load and select a region, choose Paint or Erase, set the brush radius, then drag on its surface. Mirroring reflects selected faces across the atlas midline. Paint is a surface mask, not a volumetric segmentation.</p><p>Create separate paint layers, give them names and tags, and adjust their colors and visibility. Layer isolation, grow, shrink, invert and clear act on the current selection or layer as labeled. Deleting a layer or removing a region can discard paint, so save first.</p><p>Use Undo/Redo or Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z outside text fields. Escape returns to Navigate. Undo history holds up to 50 strokes; save projects to preserve masks between visits.</p></details>
+        <details><summary>Data uploads, example cells and cell IDs</summary><p>The paired Data cards accept CSV, TSV, delimited TXT and XLSX (first worksheet). Choose micrometres, millimetres or voxel indices before importing metadata. Coordinate columns can be x/y/z or AP/DV/ML; include a unique <code>cell_id</code> to match expression.</p><p>Counts files use <strong>genes in rows and cell IDs in column headers</strong>, with gene names in the first column. A blank top-left header from an R row-name export is accepted. Matching is case-sensitive after trimming surrounding spaces, never positional. Check the matching details for missing IDs. Duplicate IDs, duplicate genes and invalid values reject the new expression file.</p><p>The Showing badge identifies the displayed dataset. Uploading metadata while the synthetic example is active stages the file: click <strong>Load your uploaded data</strong> to use it, or keep the example. Load pending metadata before its gene counts. Replacing metadata clears the previous expression and cell settings.</p><p>Metadata files must be under 30 MB. Expression supports up to 5 million values, 100 MB for text or 15 MB for XLSX. Larger datasets should be subset before upload. Expression values are used as supplied, without normalization or log transformation.</p><pre>write.csv(metadata_saved, "cells.csv", row.names = FALSE)
+write.csv(counts_saved, "expression.csv", row.names = TRUE)</pre></details>
+        <details><summary>Color scales, shape, size and legends</summary><p><strong>Color by</strong> searches grouped Genes and Metadata options, each labeled continuous or categorical. Search, choose a variable and apply it; only one variable controls color at a time. Categories use discrete colors. Missing values are gray; zero expression is a measured value.</p><p>Continuous values support viridis, magma, plasma, red-blue, grayscale, the original scale, and custom two- or three-color scales. Minimum/maximum clipping changes display colors only. Empty bounds use the data range; Reset restores it. The legend scale includes hidden cells so filtering does not change its meaning.</p><p>Shape optionally uses categorical metadata; Size can use numeric or discrete metadata or a gene. Both default to None and have independent legends. Shape symbols repeat beyond five categories with a notice. These encodings apply to 3D, slices and the embedding plot.</p></details>
+        <details><summary>Hover labels, Locate, slices and embedding</summary><p>In Navigate mode, hover over a visible cell in 3D, either slice, or the embedding plot to see its <code>cell_id</code>, dataset, active color value and atlas coordinates. If no ID is available, the selected label or row number is used. Labels hide while dragging, on leaving a view, or with Escape. On touch devices, use the cell list and Locate.</p><p><strong>Locate</strong> marks the cell in 3D and moves the coronal/sagittal slices to its coordinates. Slice sliders and exact indices explore depth; clicking a slice moves the crosshair. Hovering the slice also reports AP/DV/ML and atlas region information. Slice cells are shown within ±50 µm of the plane, not all loaded cells.</p><p>The optional embedding plot displays two numeric metadata columns, preferring UMAP1/UMAP2 when present. Choose its X/Y axes; click a point to Locate it. The app displays uploaded values—it does not calculate UMAP or t-SNE. Cells with missing axis values are not plotted.</p></details>
+        <details><summary>Cell summaries, filters and visibility</summary><p>Open Cell summary and choose a metadata field to see category counts, percentages of all loaded cells and visible counts. Click a category to isolate it, click again or Clear category isolation to restore it.</p><p>Add category filters and toggle values on/off. Add one or more gene filters, then drag the minimum/maximum sliders or enter exact bounds below each histogram. All category, summary and gene filters combine with <strong>AND</strong>. Missing expression fails a gene filter; the histograms show all measured metadata cells before filtering. Up to 50 gene filters are supported.</p><p>The visible/total count reports the result. Cell-list search finds rows by any metadata value; Show/Hide matching and row checkboxes set manual visibility. Clearing filters preserves cells you manually hid. The list shows the first 150 matches; refine the search to find a particular cell.</p></details>
+        <details><summary>Save, export, resume and share</summary><ul><li><strong>Editable project (.json):</strong> retains meshes, paint layers, cells, expression, encodings, filters and view settings for resuming work.</li><li><strong>Full scene ZIP:</strong> includes meshes, analysis tables, cell/expression data and a resumable project. Cells-only scenes are supported.</li><li><strong>Active ROI ZIP:</strong> exports the active region's painted faces and analysis data. It excludes cell/expression tables; paint an ROI first.</li><li><strong>Interactive HTML:</strong> shares the current 3D scene offline with displayed colors, shapes, sizes and legends. It is a viewer, not the editable workspace; share JSON/ZIP too for editing or choosing other genes.</li><li><strong>PNG figures:</strong> download the 3D view or slices as images.</li></ul><p>Under Resume or combine work, choose Resume saved workspace to replace the current workspace, or Add files as separate paint layers to combine work. Projects validate atlas mesh identity and face IDs. With expression attached, duplicate cell IDs across combined tables are rejected; use Resume for the same dataset.</p></details>
+        <details><summary>Coordinates, privacy and troubleshooting</summary><p>The reference is Allen mouse 25 µm, BrainGlobe atlas version 3.1. Coordinates are AP/DV/ML micrometres from the BrainGlobe atlas origin, <strong>not bregma</strong>. Source voxel indices are converted at 25 µm. Outside-atlas coordinates are retained, so check units if cells appear displaced.</p><p>Data files are processed locally in your browser. Atlas assets are downloaded from the host. There is no account, automatic cloud save or cross-device synchronization. Downloaded projects and shared files contain the data included in those exports.</p><p>If a gene file does not match, compare the exact cell IDs and matrix orientation. Gray cells indicate missing values or unmatched IDs. If no cells appear, check visible/total counts, manual visibility, filters, embedding axes and slice depth. Retry atlas loading after a network error. Desktop browsers are recommended for large meshes.</p></details>
+      </div>
+      <p class="muted">Independent project; not an Allen Institute product. Atlas: Wang et al. (2020), <a href="https://doi.org/10.1016/j.cell.2020.04.007" target="_blank" rel="noreferrer">Cell</a>. <a href="./THIRD_PARTY_NOTICES.txt">Data and code notices</a>.</p>
     </dialog>
     <script type="module" src="/web/main.js"></script>
   </body>

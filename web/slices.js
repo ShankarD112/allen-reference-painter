@@ -1,3 +1,4 @@
+import {nearestCell,showCellHover,hideCellHover} from './cell-hover.js';
 import {drawSymbol} from './cell-explorer.js';
 import { loadSlice } from "./atlas.js";
 export class Slices {
@@ -33,6 +34,8 @@ export class Slices {
       e.input.onchange = () => change(e.input.value);
       document.getElementById("find-" + e.name).onclick = () => this.focus(e);
       e.canvas.onpointermove = (event) => {
+        const rect=e.canvas.getBoundingClientRect();
+        showCellHover(nearestCell(e.cellPoints||[],event.clientX-rect.left,event.clientY-rect.top),event);
         const p = this.point(e, event);
         if (!p || !e.labels) return;
         const sid = e.labels[p[1] * e.width + p[0]],
@@ -41,7 +44,7 @@ export class Slices {
         document.getElementById("slice-hover").textContent =
           `AP ${xyz[0]} · DV ${xyz[1]} · ML ${xyz[2]} µm · ${r ? r.acronym + ' · ' + r.name : 'Outside atlas'}`;
       };
-      e.canvas.onpointerleave = () => { document.getElementById("slice-hover").textContent = "Hover a slice for AP · DV · ML coordinates (µm)."; };
+      e.canvas.onpointerleave = () => { hideCellHover(); document.getElementById("slice-hover").textContent = "Hover a slice for AP · DV · ML coordinates (µm)."; };
       e.canvas.onclick = (event) => {
         const p = this.point(e, event);
         if (!p) return;
@@ -78,6 +81,7 @@ export class Slices {
   }
   async load(e) {
     const generation = ++e.generation;
+    e.canvas.setAttribute("aria-busy","true");
     e.slider.value = e.index;
     e.input.value = e.index;
     document.getElementById(e.name + "-position").textContent =
@@ -90,9 +94,11 @@ export class Slices {
       if (generation !== e.generation) return;
       e.labels = labels;
       this.draw(e);
+      e.canvas.setAttribute("aria-busy","false");
     } catch (err) {
       if (generation === e.generation) {
         e.error = err.message;
+        e.canvas.setAttribute("aria-busy","false");
         this.draw(e);
         this.status(err.message, true);
       }
@@ -140,6 +146,7 @@ export class Slices {
       x = (w - e.width * scale) / 2,
       y = (h - e.height * scale) / 2;
     e.projection = { scale, x, y };
+    e.cellPoints=[];hideCellHover();
     if (!e.labels) {
       ctx.fillStyle = "#748c9e";
       ctx.font = `${12 * dpr}px system-ui`;
@@ -192,7 +199,11 @@ export class Slices {
         for (const id of layer.painted) dot(r.centroids.slice(id * 3, id * 3 + 3), mirrored.has(id) ? layer.mirrorColor : layer.color, 1.3);
       }
     for (const c of this.state.cells?.cells || [])
-      if (c.visible) dot(c.xyz, this.state.cellColor(c), 2.3*(this.state.cellChannels?.size(c)||1),this.state.cellChannels?.shape(c));
+      if (c.visible) {
+        const size=2.3*(this.state.cellChannels?.size(c)||1);
+        dot(c.xyz, this.state.cellColor(c),size,this.state.cellChannels?.shape(c));
+        if(Math.abs(c.xyz[e.axis]-e.index*25)<=50)e.cellPoints.push({cell:c,x:(x+c.xyz[e.h]/25*scale)/dpr,y:(y+c.xyz[1]/25*scale)/dpr,radius:size});
+      }
     const other = this.entries.find((a) => a !== e);
     ctx.setLineDash([3 * dpr, 3 * dpr]);
     ctx.lineWidth = dpr;

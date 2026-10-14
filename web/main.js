@@ -1,3 +1,4 @@
+import {setupCellHover,hideCellHover} from './cell-hover.js';
 import { CellControls } from './cell-controls.js';
 import { defaults, colorEncoding, channels, applyFilters } from './cell-explorer.js';
 import "./style.css";
@@ -123,7 +124,7 @@ function renderLoaded() {
     choose.title = r.name;
     choose.onclick = () => active(r.id);
     const remove = document.createElement("button");
-    remove.textContent = "×";
+    remove.textContent = "Remove";
     remove.className = "remove";
     remove.setAttribute("aria-label", "Remove " + r.acronym);
     remove.onclick = () => {
@@ -168,7 +169,7 @@ function search() {
     desc.textContent = r.name + (r.file ? "" : " · mesh unavailable");
     text.append(name, desc);
     plus.className = "plus";
-    plus.textContent = state.regions.has(r.id) ? "✓" : "+";
+    plus.textContent = state.regions.has(r.id) ? "Loaded" : "Load";
     button.append(swatch, text, plus);
     button.onclick = () => addRegion(r).catch(fail);
     $("search-results").append(button);
@@ -274,6 +275,7 @@ function history(back) {
 }
 state.cellColor = () => "#16bda5";
 function updateCells() {
+  hideCellHover();
   applyFilters(state);
   const colors = colorEncoding(state);
   state.cellChannels = channels(state);
@@ -496,6 +498,7 @@ async function openProjects(files, forceReplace = false) {
   } finally { busy = false; document.querySelector(".workspace").inert = false; search(); }
 }
 let pendingUpload=null;
+setupCellHover(()=>state);
 const explorer=new CellControls(state,()=>{updateCells();dirty();},locateCell);
 $('load-upload').onclick=()=>{if(!pendingUpload)return;const p=pendingUpload;pendingUpload=null;$('pending-upload').hidden=true;acceptRows(p.rows,p.units,{name:p.name,kind:'upload'});};
 $('cancel-upload').onclick=()=>{pendingUpload=null;$('pending-upload').hidden=true;status('Current dataset retained.');};
@@ -647,7 +650,8 @@ $("screenshot").onclick = () => {
 $("slice-screenshot").onclick = () => {
   if (slices) download(slices.screenshot(), "allen_painter_slices.png");
 };
-$("help").onclick = () => $("help-dialog").showModal();
+$("help").onclick = () => {hideCellHover();$("help-dialog").showModal();$("help-search").focus();};
+$("help-search").oninput=()=>{const query=$("help-search").value.trim().toLowerCase();let count=0;for(const topic of document.querySelectorAll('#help-topics details')){topic.hidden=!!query&&!topic.textContent.toLowerCase().includes(query);topic.open=!!query&&!topic.hidden||!query&&topic===document.querySelector('#help-topics details');if(!topic.hidden)count++;}$("help-empty").hidden=count>0;};
 $("close-help").onclick = () => $("help-dialog").close();
 window.addEventListener("beforeunload", (e) => {
   if (state.dirty) {
@@ -656,7 +660,7 @@ window.addEventListener("beforeunload", (e) => {
   }
 });
 window.addEventListener("keydown", (e) => {
-  if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+  if ($("help-dialog").open || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
   if (e.key === "Escape") setMode("navigate");
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
     e.preventDefault();

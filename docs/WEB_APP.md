@@ -192,3 +192,23 @@ the single-file build with its browser verification artifacts.
 Polish: paired upload cards, consistent form spacing and labels, compact channel
 legends, collapsible analysis groups, a persistent source badge, accessible field
 labels, and visible active/total cell counts.
+
+
+## Help and hover labels
+
+Help includes a searchable guide to regions/navigation, painting/layers, paired
+uploads and cell IDs, color/shape/size, hover/Locate, summaries/AND filters, exports,
+coordinate conventions and troubleshooting. Escape or Close dismisses it; paint
+keyboard shortcuts do not change the scene while the modal is open.
+
+Hover visible cells in Navigate mode, either slice, or the embedding plot to see
+cell_id (falling back to the selected label or row), source name, active color
+value and AP/DV/ML coordinates. The tooltip is plain text, does not intercept
+clicks, and clears on exit, dragging, scroll, filter/data changes and Escape.
+Touch users can use the existing cell list and Locate. Only currently displayed
+slice/embedding cells are eligible. Shared HTML retains its existing viewer
+behavior; these hover labels are part of the editable workspace.
+
+Brand marks and the tab favicon are removed; the app name remains plain text.
+Load, Loaded, Remove and Close are text labels. Data symbols and color swatches
+remain functional visual encodings.

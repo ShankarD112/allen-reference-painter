@@ -1,3 +1,4 @@
+import {nearestCell,showCellHover,hideCellHover} from './cell-hover.js';
 import {
   defaults,
   variables,
@@ -89,6 +90,8 @@ export class CellControls {
         state.explorer[key] = $(id).value;
         change();
       };
+    $("embedding").onpointermove=event=>{const rect=$("embedding").getBoundingClientRect();const points=(this.points||[]).map(p=>({cell:p.cell,x:p.x*rect.width/600,y:p.y*rect.height/360,radius:3.5*this.state.cellChannels.size(p.cell)*rect.width/600}));showCellHover(nearestCell(points,event.clientX-rect.left,event.clientY-rect.top),event);};
+    $("embedding").onpointerleave=hideCellHover;
     $("embedding").onclick = (event) => {
       const box = $("embedding").getBoundingClientRect(),
         x = ((event.clientX - box.left) * 600) / box.width,
